@@ -16,8 +16,10 @@
 #include <pcl/search/search.h>
 #include <pcl/search/kdtree.h>
 #include <pcl/filters/passthrough.h>
+#include <pcl/filters/crop_box.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/segmentation/region_growing.h>
+#include <pcl/segmentation/region_growing_rgb.h>
 
 using namespace std::chrono_literals;
 
@@ -30,7 +32,13 @@ int viewport_1, viewport_2, viewport_3, viewport_4;
 pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr input_cloud;
 pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr alligned_cloud;
 pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr clustered_cloud;
+pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr slab_cloud;
 pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr extracted_cloud;
+//pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr pier_cloud;
+pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr clustered_extraction_cloud;
+pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr bridge_cloud;
+
+
 
 //global normals
 pcl::PointCloud<pcl::Normal>::Ptr normals;
@@ -39,7 +47,9 @@ pcl::PointCloud<pcl::Normal>::Ptr estimated_normals;
 int bbox_number = 0;
 unsigned int show_normals = 0;
 bool detail_view = false;
-std::string current_detail_cloud = "";
+std::string current_detail_cloud_name = "";
+pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr current_detail_cloud;
+
 
 //reads txt cloud file 
 int read_ASCII(std::string filename, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr c, pcl::PointCloud <pcl::Normal>::Ptr n = nullptr) {
@@ -152,7 +162,7 @@ void estimate_normals(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, pcl::PointCl
     normal_estimator.compute(*normals);
 }
 
-//region growing depenant on planarity constraints extracts the slab
+//region growing depenant on planarity constraints determines the slab/deck
 pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr extract_slab(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_cloud, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr colored_cloud)
 {
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
@@ -175,36 +185,67 @@ pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr extract_slab(pcl::PointCloud<pcl::P
     reg.setInputCloud(cloud);
     //reg.setIndices (indices);
     reg.setInputNormals(normals);
-    reg.setSmoothnessThreshold(0.5 / 180.0 * M_PI);
+    reg.setSmoothnessThreshold(0.45 / 180.0 * M_PI);
     reg.setCurvatureThreshold(1.7);
 
     std::vector <pcl::PointIndices> clusters;
     reg.extract(clusters);
 
-    pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr longest_cluster;
+    pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr slab_cluster;
     float maxDiagLength = 0;
     for (auto c = 0; c < clusters.size(); c++) {
-
         if (clusters[c].indices.size() < 2000) {
             continue;
         }
 
-        pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr extracted_cloud(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-        pcl::copyPointCloud(*in_cloud, clusters[c].indices, *extracted_cloud);
+        pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr ext_cloud(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+        pcl::copyPointCloud(*in_cloud, clusters[c].indices, *ext_cloud);
         pcl::PointXYZRGBNormal minPoint, maxPoint;
-        pcl::getMinMax3D(*extracted_cloud, minPoint, maxPoint);
+        pcl::getMinMax3D(*ext_cloud, minPoint, maxPoint);
 
         Eigen::Vector3f diag = maxPoint.getVector3fMap() - minPoint.getVector3fMap();
         float l = diag.norm();
         if (l > maxDiagLength) {
             maxDiagLength = l;
-            longest_cluster = extracted_cloud;
+            slab_cluster = ext_cloud;
         }
     }
     //std::cout << "\n" << longest_cluster->size() << " -> longest\n" << input_cloud->size() << " -> input\n";
     pcl::copyPointCloud(*reg.getColoredCloud(), *colored_cloud);
 
-    return longest_cluster;
+    return slab_cluster;
+}
+
+//colored region growing
+pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr filter_surrounding(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_cloud, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr colored_cloud)
+{
+    pcl::search::Search <pcl::PointXYZRGBNormal>::Ptr rg_tree(new pcl::search::KdTree<pcl::PointXYZRGBNormal>);
+
+    //color test
+    pcl::RegionGrowingRGB<pcl::PointXYZRGBNormal, pcl::Normal> reg;
+    reg.setInputCloud(in_cloud);
+    //reg.setIndices(indices);
+    reg.setSearchMethod(rg_tree);
+    reg.setDistanceThreshold(10);
+    reg.setPointColorThreshold(9);
+    reg.setRegionColorThreshold(10);
+    reg.setMinClusterSize(30);
+
+    //normal test
+    /*reg.setInputNormals(normals);
+    reg.setNumberOfNeighbours(20);
+    reg.setSmoothnessThreshold(0.2 / 180.0 * M_PI);
+    reg.setCurvatureThreshold(0.4);*/
+
+    std::vector <pcl::PointIndices> clusters;
+    reg.extract(clusters);
+    pcl::copyPointCloud(*reg.getColoredCloud(), *colored_cloud);
+
+    pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr ext_cloud(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+    ////////////find biggest cluster
+    pcl::copyPointCloud(*in_cloud, clusters[0].indices, *ext_cloud);
+
+    return ext_cloud;
 }
 
 // keyboard callback
@@ -218,42 +259,36 @@ void keyboardEventOccurred(const pcl::visualization::KeyboardEvent& event, void*
     if (event.getKeySym() == "n" && event.keyDown())
     {
         if (show_normals == 0) {
-
+            if (detail_view && (current_detail_cloud_name == "alligned_cloud" || current_detail_cloud_name == "clustered_cloud")) {
+                detail_viewer->addPointCloudNormals<pcl::PointXYZRGBNormal, pcl::Normal>(current_detail_cloud, normals, 10, 4.5, "detail_normals", 0);
+                detail_viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 0.0, 1.0, 0.0, "detail_normals", 0);
+                detail_viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, current_detail_cloud_name);
+            }
             viewer->addPointCloudNormals<pcl::PointXYZRGBNormal, pcl::Normal>(alligned_cloud, normals, 10, 4.5, "normals", 1);
             viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 0.0, 1.0, 0.0, "normals", 1);
             viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "alligned_cloud");
 
-            if (detail_view) {
-                detail_viewer->addPointCloudNormals<pcl::PointXYZRGBNormal, pcl::Normal>(alligned_cloud, normals, 10, 4.5, "normals", 1);
-                detail_viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 0.0, 1.0, 0.0, "normals", 1);
-                detail_viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "alligned_cloud");
-            }
-
             std::cout << "enable normals vis\n";
         }
         else if (show_normals == 1) {
+            if (detail_view && (current_detail_cloud_name == "alligned_cloud" || current_detail_cloud_name == "clustered_cloud")) {
+                detail_viewer->removePointCloud("detail_normals");
+                detail_viewer->addPointCloudNormals<pcl::PointXYZRGBNormal, pcl::Normal>(current_detail_cloud, estimated_normals, 10, 4.5, "detail_estimated_normals", 0);
+                detail_viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 0.0, 0.0, 1.0, "detail_estimated_normals");
+            }
             viewer->removePointCloud("normals");
             viewer->addPointCloudNormals<pcl::PointXYZRGBNormal, pcl::Normal>(alligned_cloud, estimated_normals, 10, 4.5, "estimated_normals", 1);
             viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 0.0, 0.0, 1.0, "estimated_normals");
-            viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "alligned_cloud");
-
-            if (detail_view) {
-                detail_viewer->removePointCloud("normals");
-                detail_viewer->addPointCloudNormals<pcl::PointXYZRGBNormal, pcl::Normal>(alligned_cloud, estimated_normals, 10, 4.5, "estimated_normals", 1);
-                detail_viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 0.0, 0.0, 1.0, "estimated_normals");
-                detail_viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "alligned_cloud");
-            }
 
             std::cout << "enable estimated normals vis\n";
         }
         else {
+            if (detail_view && (current_detail_cloud_name == "alligned_cloud" || current_detail_cloud_name == "clustered_cloud")) {
+                detail_viewer->removePointCloud("detail_estimated_normals");
+                detail_viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, current_detail_cloud_name);
+            }
             viewer->removePointCloud("estimated_normals");
             viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "alligned_cloud");
-
-            if (detail_view) {
-                detail_viewer->removePointCloud("estimated_normals");
-                detail_viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "alligned_cloud");
-            }
 
             std::cout << "disable estimated normals vis\n";
         }
@@ -262,43 +297,95 @@ void keyboardEventOccurred(const pcl::visualization::KeyboardEvent& event, void*
 
     //enables and sets the detail view according to input
     if (event.getKeySym() == "F1" && event.keyDown()) {
-        if (!detail_view && current_detail_cloud != "alligned_cloud") {
-            detail_viewer->removePointCloud(current_detail_cloud);
-            detail_viewer->removeAllShapes();
+        if (current_detail_cloud_name == "alligned_cloud") {
+            return;
         }
+        detail_viewer->removePointCloud(current_detail_cloud_name);
+        detail_viewer->removeAllShapes();
         pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGBNormal> rgb(alligned_cloud);
         detail_viewer->addPointCloud<pcl::PointXYZRGBNormal>(alligned_cloud, rgb, "alligned_cloud");
         add_bounding_box(alligned_cloud, 0, 1.0, 0.0, 0.0, detail_viewer);
-        add_bounding_box(extracted_cloud, 0, 0.0, 1.0, 1.0, detail_viewer);
+        add_bounding_box(slab_cloud, 0, 0.0, 1.0, 1.0, detail_viewer);
         detail_view = true;
-        current_detail_cloud = "alligned_cloud";
+        current_detail_cloud_name = "alligned_cloud";
+        current_detail_cloud = alligned_cloud;
+        detail_viewer->setRepresentationToWireframeForAllActors();
     }
 
     if (event.getKeySym() == "F2" && event.keyDown()) {
-        if (!detail_view && current_detail_cloud != "clustered_cloud") {
-            detail_viewer->removePointCloud(current_detail_cloud);
-            detail_viewer->removeAllShapes();
+        if (current_detail_cloud_name == "clustered_cloud") {
+            return;
         }
+        detail_viewer->removePointCloud(current_detail_cloud_name);
+        detail_viewer->removeAllShapes();
         pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGBNormal> rgb(clustered_cloud);
         detail_viewer->addPointCloud<pcl::PointXYZRGBNormal>(clustered_cloud, rgb, "clustered_cloud");
         add_bounding_box(clustered_cloud, 0, 1.0, 0.0, 0.0, detail_viewer);
         detail_view = true;
-        current_detail_cloud = "clustered_cloud";
+        current_detail_cloud_name = "clustered_cloud";
+        current_detail_cloud = clustered_cloud;
+        detail_viewer->setRepresentationToWireframeForAllActors();
     }
 
     if (event.getKeySym() == "F3" && event.keyDown()) {
-        if (!detail_view && current_detail_cloud != "extracted_cloud") {
-            detail_viewer->removePointCloud(current_detail_cloud);
-            detail_viewer->removeAllShapes();
+        if (current_detail_cloud_name == "slab_cloud") {
+            return;
         }
+        detail_viewer->removePointCloud(current_detail_cloud_name);
+        detail_viewer->removeAllShapes();
         pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGBNormal> rgb(extracted_cloud);
         detail_viewer->addPointCloud<pcl::PointXYZRGBNormal>(extracted_cloud, rgb, "extracted_cloud");
         add_bounding_box(extracted_cloud, 0, 1.0, 0.0, 0.0, detail_viewer);
         detail_view = true;
-        current_detail_cloud = "extracted_cloud";
+        current_detail_cloud_name = "extracted_cloud";
+        current_detail_cloud = extracted_cloud;
+        detail_viewer->setRepresentationToWireframeForAllActors();
     }
 
-    if (event.getKeySym() == "F4" && event.keyDown()) {}
+    if (event.getKeySym() == "F4" && event.keyDown()) {
+        if (current_detail_cloud_name == "clustered_extraction_cloud") {
+            return;
+        }
+        detail_viewer->removePointCloud(current_detail_cloud_name);
+        detail_viewer->removeAllShapes();
+        pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGBNormal> rgb(clustered_extraction_cloud);
+        detail_viewer->addPointCloud<pcl::PointXYZRGBNormal>(clustered_extraction_cloud, rgb, "clustered_extraction_cloud");
+        //add_bounding_box(clustered_extraction, 0, 1.0, 0.0, 0.0, detail_viewer);
+        detail_view = true;
+        current_detail_cloud_name = "clustered_extraction_cloud";
+        current_detail_cloud = clustered_extraction_cloud;
+        detail_viewer->setRepresentationToWireframeForAllActors();
+    }
+
+    if (event.getKeySym() == "F5" && event.keyDown()) {
+        if (current_detail_cloud_name == "slab_cloud") {
+            return;
+        }
+        detail_viewer->removePointCloud(current_detail_cloud_name);
+        detail_viewer->removeAllShapes();
+        pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGBNormal> rgb(slab_cloud);
+        detail_viewer->addPointCloud<pcl::PointXYZRGBNormal>(slab_cloud, rgb, "slab_cloud");
+        add_bounding_box(slab_cloud, 0, 1.0, 0.0, 0.0, detail_viewer);
+        detail_view = true;
+        current_detail_cloud_name = "slab_cloud";
+        current_detail_cloud = slab_cloud;
+        detail_viewer->setRepresentationToWireframeForAllActors();
+    }
+
+    if (event.getKeySym() == "F6" && event.keyDown()) {
+        if (current_detail_cloud_name == "bridge_cloud") {
+            return;
+        }
+        detail_viewer->removePointCloud(current_detail_cloud_name);
+        detail_viewer->removeAllShapes();
+        pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGBNormal> rgb(bridge_cloud);
+        detail_viewer->addPointCloud<pcl::PointXYZRGBNormal>(bridge_cloud, rgb, "slab_cloud");
+        add_bounding_box(bridge_cloud, 0, 1.0, 0.0, 0.0, detail_viewer);
+        detail_view = true;
+        current_detail_cloud_name = "bridge_cloud";
+        current_detail_cloud = bridge_cloud;
+        detail_viewer->setRepresentationToWireframeForAllActors();
+    }
 
 }
 
@@ -420,18 +507,30 @@ int main(int argc, char** argv)
         file_name = argv[2];
         format = file_name.substr(file_name.find_last_of(".") + 1);
         if (format == "cam") {
+            std::cout<<"Load camera file and setup viewer." << std::endl;
             setup_pointcloud_viewer(file_name);
+
         }else {
-            std::cout << "Camera file has the wrong format. Use .cam file generated by PCL Viewer.";
+            std::cout << "Camera file has the wrong format. Use .cam file generated by PCL Viewer." << endl;
+            std::cout << "Load default camera settings." << std::endl;
+            setup_pointcloud_viewer();
         }
     }
     else {
+        std::cout << "Setup viewer." << std::endl;
         setup_pointcloud_viewer();
     }
 
-    //allign input cloud 
+    //allign input cloud
+    std::cout << "Allign point cloud" << std::endl;
     alligned_cloud = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-    allign_cloud(input_cloud, alligned_cloud);
+    pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr centered_cloud = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+    allign_cloud(input_cloud, centered_cloud);
+    //additionally rotate cloud
+    Eigen::Affine3f rot = Eigen::Affine3f::Identity();
+    rot.rotate(Eigen::AngleAxisf(-M_PI/2, Eigen::Vector3f::UnitZ()));
+    pcl::transformPointCloudWithNormals(*centered_cloud, *alligned_cloud, rot);
+    centered_cloud.reset();
 
     //copy alligned normals
     pcl::copyPointCloud(*alligned_cloud, *normals);
@@ -447,24 +546,59 @@ int main(int argc, char** argv)
     estimated_normals = pcl::PointCloud<pcl::Normal>::Ptr(new pcl::PointCloud<pcl::Normal>);
     estimate_normals(cloud_without_normals, estimated_normals);
 
-    //================== slab extraction ==============
+    //================== slab extraction and bounding box creation ==============
     //extract slab
+    std::cout << "Extract slab." << std::endl;
     clustered_cloud = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-    extracted_cloud = extract_slab(alligned_cloud, clustered_cloud);
+    slab_cloud = extract_slab(alligned_cloud, clustered_cloud);
     
     //show clustering
     pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGBNormal> clustered_rgb(clustered_cloud);
     viewer->addPointCloud<pcl::PointXYZRGBNormal>(clustered_cloud, clustered_rgb, "clustered_cloud", viewport_2);
     add_bounding_box(clustered_cloud, viewport_2);
 
-    //show extraction
+    //show slab extraction
+    //pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGBNormal> extracted_slab_rgb(slab_cloud);
+    //viewer->addPointCloud<pcl::PointXYZRGBNormal>(slab_cloud, extracted_slab_rgb, "slab_cloud", viewport_3);
+    add_bounding_box(slab_cloud, viewport_3, 0.0, 1.0, 1.0);
+    add_bounding_box(slab_cloud, viewport_1, 0.0, 1.0, 1.0);
+
+    //================== expand and crop bounding box ==============
+
+    //construct bounds 
+    pcl::PointXYZRGBNormal minPoint_cloud, maxPoint_cloud, minPoint_extract, maxPoint_extract;
+    pcl::getMinMax3D(*alligned_cloud, minPoint_cloud, maxPoint_cloud);
+    pcl::getMinMax3D(*slab_cloud, minPoint_extract, maxPoint_extract);
+    Eigen::Vector4f maxBound = Eigen::Vector4f(maxPoint_extract.x, maxPoint_extract.y, maxPoint_extract.z, 1.0);
+    Eigen::Vector4f minBound = Eigen::Vector4f(minPoint_extract.x, minPoint_cloud.y, minPoint_extract.z, 1.0);
+    
+    //filter by box filter containing occlusions
+    std::cout << "Extract bridge with surrounding." << std::endl;
+    extracted_cloud = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+    pcl::CropBox<pcl::PointXYZRGBNormal> boxFilter;
+    boxFilter.setMax(maxBound);
+    boxFilter.setMin(minBound);
+    boxFilter.setInputCloud(alligned_cloud);
+    boxFilter.filter(*extracted_cloud);
+
+    //visualize extracted bridge with surrounding
+    std::cout << "Filter bridge." << std::endl;
     pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGBNormal> extracted_rgb(extracted_cloud);
     viewer->addPointCloud<pcl::PointXYZRGBNormal>(extracted_cloud, extracted_rgb, "extracted_cloud", viewport_3);
-    add_bounding_box(extracted_cloud, viewport_3);
-    add_bounding_box(extracted_cloud, viewport_1, 0.0, 1.0, 1.0);
+    add_bounding_box(extracted_cloud, viewport_3, 1.0, 0.0, 1.0);
+    add_bounding_box(extracted_cloud, viewport_1, 1.0, 0.0, 1.0);
 
-    //================== bounding box extansion ==============
+    //filter surrounding
+    clustered_extraction_cloud = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+    pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr pier_cloud(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+    pier_cloud = filter_surrounding(extracted_cloud, clustered_extraction_cloud);
 
+    //visualize clustered extraction
+    std::cout << "Show final bridge extraction." << std::endl;
+    pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGBNormal> clust_extracted_rgb(clustered_extraction_cloud);
+    viewer->addPointCloud<pcl::PointXYZRGBNormal>(clustered_extraction_cloud, clust_extracted_rgb, "clustered_extraction", viewport_4);
+
+    viewer->setRepresentationToWireframeForAllActors();
 
     //main viewer loop
     while (!viewer->wasStopped()){
