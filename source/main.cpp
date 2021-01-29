@@ -3,6 +3,7 @@
 #include <thread>
 #include <string>
 #include <vector>
+#include <limits>
 
 #include <pcl/point_types.h>
 #include <pcl/io/pcd_io.h>
@@ -20,6 +21,7 @@
 #include <pcl/features/normal_3d.h>
 #include <pcl/segmentation/region_growing.h>
 #include <pcl/segmentation/region_growing_rgb.h>
+#include <pcl/ml/kmeans.h>
 
 using namespace std::chrono_literals;
 
@@ -34,11 +36,10 @@ pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr alligned_cloud;
 pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr clustered_cloud;
 pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr slab_cloud;
 pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr extracted_cloud;
+pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr extracted_cloud_rgbnormalized;
 //pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr pier_cloud;
 pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr clustered_extraction_cloud;
-pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr bridge_cloud;
-
-
+pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr bridge_cloud; 
 
 //global normals
 pcl::PointCloud<pcl::Normal>::Ptr normals;
@@ -65,6 +66,8 @@ int read_ASCII(std::string filename, pcl::PointCloud<pcl::PointXYZRGBNormal>::Pt
     float x, y, z;
     float r, g, b;
     float nx, ny, nz;
+    bool floatmapped = true;
+    float format_factor = 1.0;
 
     while (!feof(file))
     {
@@ -72,23 +75,28 @@ int read_ASCII(std::string filename, pcl::PointCloud<pcl::PointXYZRGBNormal>::Pt
         if (n_args != 9)
             continue;
 
+        if (floatmapped && r > 1.1f ||g > 1.1f || b > 1.1f) {
+            format_factor = 255.0;
+            floatmapped != false;
+        }
+
         pcl::PointXYZRGBNormal point;
         point.x = x;
         point.y = y;
         point.z = z;
-        point.r = (char)(r * 255.0);
-        point.g = (char)(g * 255.0);
-        point.b = (char)(b * 255.0);
+        point.r = (char)(r * format_factor);
+        point.g = (char)(g * format_factor);
+        point.b = (char)(b * format_factor);
         point.normal_x = nx;
         point.normal_y = ny;
         point.normal_z = nz;
         c->push_back(point);
 
         pcl::Normal normal;
-        normal.normal_x = nx;
-        normal.normal_y = ny;
-        normal.normal_z = nz;
-        n->push_back(normal);
+normal.normal_x = nx;
+normal.normal_y = ny;
+normal.normal_z = nz;
+n->push_back(normal);
     }
 
     fclose(file);
@@ -141,13 +149,13 @@ void allign_cloud(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_cloud, pcl::Po
 
 //adds a simple bounding box to cloud
 void add_bounding_box(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_cloud, int viewport, float color_r = 1.0, float color_g = 0.0, float color_b = 0.0, pcl::visualization::PCLVisualizer::Ptr in_viewer = viewer) {
-    
+
     //get min, max and diagonal center for bounding box
     pcl::PointXYZRGBNormal minPoint, maxPoint;
     pcl::getMinMax3D(*in_cloud, minPoint, maxPoint);
     const Eigen::Vector3f meanDiagonal = 0.5f * (maxPoint.getVector3fMap() + minPoint.getVector3fMap());
 
-    in_viewer->addCube(minPoint.x, maxPoint.x, minPoint.y, maxPoint.y, minPoint.z, maxPoint.z, color_r, color_g, color_b, "bounding_box_"+bbox_number, viewport);
+    in_viewer->addCube(minPoint.x, maxPoint.x, minPoint.y, maxPoint.y, minPoint.z, maxPoint.z, color_r, color_g, color_b, "bounding_box_" + bbox_number, viewport);
     bbox_number++;
 }
 
@@ -160,6 +168,92 @@ void estimate_normals(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, pcl::PointCl
     normal_estimator.setKSearch(50);
     normal_estimator.setViewPoint(-600.589, 1108.48, 1479.04);
     normal_estimator.compute(*normals);
+}
+
+//normalze RGB values
+void normalize_RGB(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr const cloud, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr normalized_cloud) {
+    __int16 sum = 0;
+    for (pcl::PointCloud<pcl::PointXYZRGBNormal>::iterator it = cloud->begin(); it != cloud->end(); it++) {
+        pcl::PointXYZRGBNormal point;
+        pcl::copyPoint(*it, point);
+        int r = __int16(point.r);
+        int g = __int16(point.g);
+        int b = __int16(point.b);
+        sum = r;
+        sum += g;
+        sum += b;
+        float f_R = float(r) / float(sum) * 255.0;
+        float f_G = float(g) / float(sum) * 255.0;
+        float f_B = float(b) / float(sum) * 255.0;
+
+        int32_t rgb = (static_cast<uint32_t>(f_R) << 16 | static_cast<uint32_t>(f_G) << 8 | static_cast<uint32_t>(f_B));
+        point.rgb = rgb;
+        normalized_cloud->push_back(point);
+        sum = 0;
+    }
+}
+
+//filter by color with kmeans
+pcl::PointCloud <pcl::PointXYZRGBNormal>::Ptr colored_kmeans(pcl::PointCloud <pcl::PointXYZRGBNormal>::Ptr const in_cloud, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr colored_cloud, unsigned int num_cluster) {
+
+    pcl::Kmeans means(static_cast<int>(in_cloud->points.size()), 3);
+    means.setClusterSize(num_cluster);
+    std::vector<std::vector<float>> formated_points;
+
+    //format rgb space for kmeans
+    for (size_t i = 0; i < in_cloud->points.size(); i++) {
+        std::vector<float> data(3);
+        data[0] = float(in_cloud->points[i].r) / 255.0;
+        data[1] = float(in_cloud->points[i].g) / 255.0;
+        data[2] = float(in_cloud->points[i].b) / 255.0;
+        means.addDataPoint(data);
+        formated_points.push_back(data);
+    }
+    std::cout << "kmeans : Start kmeans "<< std::endl;
+    means.kMeans();
+    pcl::Kmeans::Centroids centroids = means.get_centroids();
+    std::cout << "Kmeans : Points in total Cloud : " << formated_points.size() << std::endl;
+    std::cout << "Kmeans : Centroid count: " << centroids.size() << std::endl;
+    
+    //assign each point to cluster
+    std::cout << "Kmeans : Extract kmeans cluster" << std::endl;
+    std::vector<std::vector<int>> cluster_indices;
+    cluster_indices.reserve(centroids.size());
+    for (size_t i = 0; i < formated_points.size(); i++) {
+        unsigned int closest_centroid = 0;
+        float distance = std::numeric_limits<float>::max();
+        float closest_distance = distance;
+        for (size_t c = 0; c < centroids.size(); c++) {
+            distance = means.distance(centroids[c], formated_points[i]);
+            if (distance < closest_distance) {
+                closest_distance = distance;
+                closest_centroid = c;
+            }
+        }
+        cluster_indices[closest_centroid].push_back(i);
+    }
+    std::cout << "kmeans : cluster sizes: " << std::endl;
+
+    int biggest_cluster = 0;
+    int biggest_cluster_size = 0;
+    int size = 0;
+
+    //extract cluster
+    for (size_t j = 0; j < centroids.size(); j++) {
+        std::cout << "kmeans : Centroid " << j << ": " << size << std::endl;
+        size = cluster_indices[j].size();
+
+        //condition which cluster is determined as pile cluster
+        if (size > biggest_cluster_size) {
+            biggest_cluster = j;
+        }
+
+        //construct colored cloud
+    }
+    std::cout << "kmeans : Extract cluster "<< biggest_cluster << std::endl;
+    pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr extraction(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+    pcl::copyPointCloud(*input_cloud, cluster_indices[biggest_cluster], *extraction);
+    return extraction;
 }
 
 //region growing depenant on planarity constraints determines the slab/deck
@@ -588,16 +682,29 @@ int main(int argc, char** argv)
     add_bounding_box(extracted_cloud, viewport_3, 1.0, 0.0, 1.0);
     add_bounding_box(extracted_cloud, viewport_1, 1.0, 0.0, 1.0);
 
+    //normalize point colors
+    //extracted_cloud_rgbnormalized = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+    //normalize_RGB(extracted_cloud, extracted_cloud_rgbnormalized);
+    //pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGBNormal> extracted_cloud_rgbnormalized_rgb(extracted_cloud_rgbnormalized);
+    //detail_viewer->addPointCloud<pcl::PointXYZRGBNormal>(extracted_cloud_rgbnormalized, extracted_cloud_rgbnormalized_rgb, "extracted_cloud_rgbnormalized");
+
     //filter surrounding
     clustered_extraction_cloud = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
     pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr pier_cloud(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-    pier_cloud = filter_surrounding(extracted_cloud, clustered_extraction_cloud);
+    //pier_cloud = filter_surrounding(extracted_cloud_rgbnormalized, clustered_extraction_cloud);
+    //pier_cloud = filter_surrounding(extracted_cloud, clustered_extraction_cloud);
+
+    pier_cloud = colored_kmeans(extracted_cloud,clustered_extraction_cloud, 3);
+    pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGBNormal> pier_cloud_rgb(pier_cloud);
+    detail_viewer->addPointCloud<pcl::PointXYZRGBNormal>(pier_cloud, pier_cloud_rgb, "pier_cloud");
+
+    //!!!!!!!!!!!
+    // https://stackoverflow.com/questions/55974863/pcl-how-to-extract-cluster-label-from-k-means-clustering-in-pcl-1-8-1
 
     //visualize clustered extraction
-    std::cout << "Show final bridge extraction." << std::endl;
-    pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGBNormal> clust_extracted_rgb(clustered_extraction_cloud);
-    viewer->addPointCloud<pcl::PointXYZRGBNormal>(clustered_extraction_cloud, clust_extracted_rgb, "clustered_extraction", viewport_4);
-
+    //std::cout << "Show final bridge extraction." << std::endl;
+    //pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGBNormal> clust_extracted_rgb(clustered_extraction_cloud);
+    //viewer->addPointCloud<pcl::PointXYZRGBNormal>(clustered_extraction_cloud, clust_extracted_rgb, "clustered_extraction", viewport_4);
     viewer->setRepresentationToWireframeForAllActors();
 
     //main viewer loop
