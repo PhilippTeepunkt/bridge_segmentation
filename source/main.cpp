@@ -174,6 +174,43 @@ void add_bounding_box(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_cloud, int
     bbox_number++;
 }
 
+//adds a oriented bounding box by PCA
+void add_oriented_boundingbox(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_cloud, int viewport, float color_r = 1.0, float color_g = 0.0, float color_b = 0.0, pcl::visualization::PCLVisualizer::Ptr in_viewer = viewer) {
+    
+    //compute centroid
+    Eigen::Vector4f centroid;
+    pcl::compute3DCentroid(*in_cloud, centroid);
+
+    //compute the principal direction of the cloud by PCA
+    pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr projected_cloud(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+    pcl::PCA<pcl::PointXYZRGBNormal> pca;
+    pca.setInputCloud(in_cloud);
+    pca.project(*in_cloud, *projected_cloud);
+    Eigen::Matrix3f eigen_vecs = pca.getEigenVectors();
+
+    // project cloud to the eigen vectors / build projection matrix
+    Eigen::Matrix4f projection(Eigen::Matrix4f::Identity());
+    projection.block<3, 3>(0, 0) = eigen_vecs.transpose();
+    projection.block<3, 1>(0, 3) = -1.0f * (projection.block<3, 3>(0, 0) * centroid.head<3>());
+    pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_points_projected(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+
+    //transform to origin
+    pcl::transformPointCloudWithNormals(*in_cloud, *cloud_points_projected, projection);
+
+    // Get the minimum and maximum points of the transformed cloud.
+    pcl::PointXYZRGBNormal minPoint, maxPoint;
+    pcl::getMinMax3D(*cloud_points_projected, minPoint, maxPoint);
+    const Eigen::Vector3f meanDiagonal = 0.5f * (maxPoint.getVector3fMap() + minPoint.getVector3fMap());
+
+    //transform to cloud position
+    const Eigen::Quaternionf bbox_quaternion(eigen_vecs);
+    const Eigen::Vector3f bbox_transform = eigen_vecs * meanDiagonal + centroid.head<3>();
+
+    in_viewer->addCube(bbox_transform, bbox_quaternion,maxPoint.x-minPoint.x, maxPoint.y-minPoint.y, maxPoint.z-minPoint.z, "bounding_box_" + bbox_number, viewport);
+    in_viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, color_r, color_g, color_b, "bounding_box_" + bbox_number);
+    bbox_number++;
+}
+
 //estimates normals by fitting local tangent plane
 void estimate_normals(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, pcl::PointCloud<pcl::Normal>::Ptr normals) {
     pcl::search::Search<pcl::PointXYZRGB>::Ptr search_tree(new pcl::search::KdTree<pcl::PointXYZRGB>);
@@ -206,6 +243,25 @@ void normalize_RGB(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr const cloud, pcl
         normalized_cloud->push_back(point);
         sum = 0;
     }
+}
+
+//helper function to transform a polymesh
+void transformPolygonMesh(pcl::PolygonMesh* inMesh, Eigen::Matrix4f& transform)
+{
+    //NOTE: For testing purposes, the matrix is defined internally
+    transform = Eigen::Matrix4f::Identity();
+    float theta = 0; // The angle of rotation in radians
+    transform(0, 0) = cos(theta);
+    transform(0, 1) = -sin(theta);
+    transform(1, 0) = sin(theta);
+    transform(1, 1) = cos(theta);
+    transform(0, 3) = 2.5;
+
+    //Important part starts here
+    pcl::PointCloud<pcl::PointXYZ> cloud;
+    pcl::fromPCLPointCloud2(inMesh->cloud, cloud);
+    pcl::transformPointCloud(cloud, cloud, transform);
+    pcl::toPCLPointCloud2(cloud, inMesh->cloud);
 }
 
 //filter by color with kmeans
@@ -702,6 +758,7 @@ int main(int argc, char** argv)
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_on_hull(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::PointCloud<pcl::PointXYZ>::Ptr slab_cloud_spatial(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::PointCloud<pcl::PointXYZ>::Ptr alligned_cloud_spatial(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::PolygonMesh mesh;
     pcl::copyPointCloud(*slab_cloud, *slab_cloud_spatial);
     pcl::copyPointCloud(*alligned_cloud, *alligned_cloud_spatial);
     std::vector<pcl::Vertices> hull_indices;
@@ -710,10 +767,11 @@ int main(int argc, char** argv)
     hull.setDimension(2);
     hull.reconstruct(*cloud_on_hull, hull_indices);
 
+    /*
+    hull.reconstruct(mesh);
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_on_hull_rgb(new pcl::PointCloud<pcl::PointXYZRGB>);
     pcl::copyPointCloud(*cloud_on_hull,*cloud_on_hull_rgb);
-    pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZRGB> convex_hull_rgb(cloud_on_hull_rgb,255,0,0);
-    detail_viewer->addPointCloud<pcl::PointXYZRGB>(cloud_on_hull_rgb, convex_hull_rgb, "convex_cloud");
+    detail_viewer->addPolygonMesh(mesh, "convex_hull");*/
 
     if (hull.getDimension() == 2) {
         pcl::ExtractPolygonalPrismData<pcl::PointXYZ> prism;
