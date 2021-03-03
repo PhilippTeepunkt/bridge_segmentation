@@ -16,6 +16,9 @@
 
 #include <pcl/features/normal_3d_omp.h>
 
+#include <sys/types.h>
+#include <sys/stat.h>
+
 struct BoundingBox
 {
 	pcl::PointXYZRGBNormal minPoint;
@@ -46,6 +49,8 @@ void sample_mesh(std::string file_name, int number_samples, pcl::PointCloud<pcl:
 
 bool read_ASCII(std::string filename, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr c, pcl::PointCloud <pcl::Normal>::Ptr n = nullptr);
 
-void estimate_normals(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, pcl::PointCloud<pcl::Normal>::Ptr normals, float v_x = 0.0f, float v_y = 0.0f, float v_z = 100000.0f);
+void estimate_normals(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_cloud, pcl::PointCloud<pcl::Normal>::Ptr normals, bool copy_to_cloud, float v_x = 0.0f, float v_y = 0.0f, float v_z = 100000.0f);
 void normalize_RGB(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr const cloud, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr normalized_cloud);
+
+bool IsPathExist(const std::string& s);
 #endif

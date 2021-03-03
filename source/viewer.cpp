@@ -88,14 +88,24 @@ bool Viewer::remove_pointcloud(std::string cloud_name) {
 //functions to add a bounding box to a point cloud
 void Viewer::add_bounding_box(BoundingBox const& boundingBox, float r, float g, float b, int viewport) {
     num_bounding_box_++;
-    addCube(boundingBox.minPoint.x, boundingBox.maxPoint.x, boundingBox.minPoint.y, boundingBox.maxPoint.y, boundingBox.minPoint.z, boundingBox.maxPoint.z, boundingBox.r, boundingBox.g, boundingBox.b, "bounding_box_"+num_bounding_box_, viewport);
+    if (r < 0) {
+        r = boundingBox.r;
+        g = boundingBox.g;
+        b = boundingBox.b;
+    }
+    addCube(boundingBox.minPoint.x, boundingBox.maxPoint.x, boundingBox.minPoint.y, boundingBox.maxPoint.y, boundingBox.minPoint.z, boundingBox.maxPoint.z, r, g, b, "bounding_box_"+num_bounding_box_, viewport);
     setRepresentationToWireframeForAllActors();
 }
 
 void Viewer::add_oriented_box(BoundingBox const& boundingBox, float r, float g, float b, int viewport) {
     num_bounding_box_++;
+    if (r < 0) {
+        r = boundingBox.r;
+        g = boundingBox.g;
+        b = boundingBox.b;
+    }
     addCube(boundingBox.transform, boundingBox.rotation, boundingBox.dim_x, boundingBox.dim_y, boundingBox.dim_z, "o_bounding_box_" + num_bounding_box_, viewport);
-    setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, boundingBox.r, boundingBox.g, boundingBox.b, "o_bounding_box_" + num_bounding_box_);
+    setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, r, g, b, "o_bounding_box_" + num_bounding_box_);
     setRepresentationToWireframeForAllActors();
 }
 

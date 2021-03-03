@@ -8,6 +8,9 @@ BoundingBox create_boundingbox(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_c
 	boundingBox.r = r;
 	boundingBox.g = g;
 	boundingBox.b = b;
+    boundingBox.dim_x = boundingBox.maxPoint.x - boundingBox.minPoint.x;
+    boundingBox.dim_y = boundingBox.maxPoint.y - boundingBox.minPoint.y;
+    boundingBox.dim_z = boundingBox.maxPoint.z - boundingBox.minPoint.z;
 
 	return boundingBox;
 }
@@ -42,6 +45,10 @@ BoundingBox create_oriented_boundingbox(pcl::PointCloud<pcl::PointXYZRGBNormal>:
 
     // Get the minimum and maximum points of the transformed cloud.
     pcl::getMinMax3D(*cloud_points_projected, boundingBox.minPoint, boundingBox.maxPoint);
+
+    boundingBox.dim_x = boundingBox.maxPoint.x - boundingBox.minPoint.x;
+    boundingBox.dim_y = boundingBox.maxPoint.y - boundingBox.minPoint.y;
+    boundingBox.dim_z = boundingBox.maxPoint.z - boundingBox.minPoint.z;
 
     //transform to cloud position
     boundingBox.rotation = eigen_vecs;
@@ -247,11 +254,14 @@ bool read_ASCII(std::string filename, pcl::PointCloud<pcl::PointXYZRGBNormal>::P
 
 //================ PIPELINE BUILDING BLOCKS ==============
 //normal estimation
-void estimate_normals(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, pcl::PointCloud<pcl::Normal>::Ptr normals, float v_x, float v_y, float v_z) {
-    pcl::search::Search<pcl::PointXYZRGB>::Ptr search_tree(new pcl::search::KdTree<pcl::PointXYZRGB>);
+void estimate_normals(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_cloud, pcl::PointCloud<pcl::Normal>::Ptr normals, bool copy_to_cloud, float v_x, float v_y, float v_z) {
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud = pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::copyPointCloud(*in_cloud, *cloud);
+
+    pcl::search::Search<pcl::PointXYZ>::Ptr search_tree(new pcl::search::KdTree<pcl::PointXYZ>);
     
     //estimates normals by fitting local tangent plane
-    pcl::NormalEstimationOMP<pcl::PointXYZRGB, pcl::Normal> normal_estimator;
+    pcl::NormalEstimationOMP<pcl::PointXYZ, pcl::Normal> normal_estimator;
     normal_estimator.setSearchMethod(search_tree);
     normal_estimator.setInputCloud(cloud);
     normal_estimator.setKSearch(50);
@@ -259,6 +269,10 @@ void estimate_normals(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, pcl::PointCl
     //orient to view point
     normal_estimator.setViewPoint(v_x, v_y, v_z);
     normal_estimator.compute(*normals);
+    
+    if (copy_to_cloud) {
+        pcl::copyPointCloud(*normals, *in_cloud);
+    }
 }
 
 //color normalization
@@ -283,4 +297,11 @@ void normalize_RGB(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr const cloud, pcl
         normalized_cloud->push_back(point);
         sum = 0;
     }
+}
+
+
+bool IsPathExist(const std::string& s)
+{
+    struct stat buffer;
+    return (stat(s.c_str(), &buffer) == 0);
 }
