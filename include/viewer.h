@@ -24,7 +24,7 @@ public:
 	bool remove_pointcloud(std::string cloud_name);
 
 	void add_bounding_box(BoundingBox const& boundingBox, float r = -1.0, float g = -1.0, float b = -1.0, int viewport = 0);
-	void add_oriented_box(BoundingBox const& boundingBox, float r = -1.0, float g = -1, float b = -1.0, int viewport = 0);
+	void add_oriented_bounding_box(BoundingBox const& boundingBox, float r = -1.0, float g = -1, float b = -1.0, int viewport = 0);
 	BoundingBox assign_bounding_box(std::string cloud_name, float r = 1.0, float g = 1.0, float b = 1.0);
 	BoundingBox assign_oriented_bounding_box(std::string cloud_name, float r = 1.0, float g = 1.0, float b = 1.0);
 	void remove_bounding_box(std::string name);

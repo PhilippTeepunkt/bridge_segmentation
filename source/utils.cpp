@@ -299,7 +299,6 @@ void normalize_RGB(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr const cloud, pcl
     }
 }
 
-
 bool IsPathExist(const std::string& s)
 {
     struct stat buffer;

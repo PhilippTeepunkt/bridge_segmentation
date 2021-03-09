@@ -37,6 +37,9 @@ pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr input_cloud;
 pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr clustered_cloud;
 pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr slab_cloud;
 pcl::PointIndices::Ptr slab_indices;
+int config_num_neightbours = 500;
+float config_smoothness = 0.62;
+float config_curvature = 1.6;
 
 //clipping cloud and indices
 pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr clipped_cloud;
@@ -55,6 +58,10 @@ pcl::PointIndices::Ptr second_filtered_indices;
 //final output cloud and indices after outlier removal
 pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr bridge_cloud;
 pcl::PointIndices::Ptr bridge_indices;
+int config_point_neightbourhood = 200;
+float config_std_deviation = 0.8;
+int config_num_cluster_first = 4;
+int config_num_cluster_second = 3;
 
 //global normals
 pcl::PointCloud<pcl::Normal>::Ptr normals;
@@ -146,11 +153,11 @@ pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr extract_slab(pcl::PointCloud<pcl::P
     reg.setMinClusterSize(5000);
     reg.setMaxClusterSize(in_cloud->points.size()/2);
     reg.setSearchMethod(tree);
-    reg.setNumberOfNeighbours(500);
+    reg.setNumberOfNeighbours(config_num_neightbours);
     reg.setInputCloud(cloud);
     reg.setInputNormals(estimated_normals);
-    reg.setSmoothnessThreshold(0.62 / 180.0 * M_PI);
-    reg.setCurvatureThreshold(1.6);
+    reg.setSmoothnessThreshold(config_smoothness / 180.0 * M_PI);
+    reg.setCurvatureThreshold(config_curvature);
 
     std::vector <pcl::PointIndices> clusters;
     reg.extract(clusters);
@@ -188,19 +195,19 @@ pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr extract_slab(pcl::PointCloud<pcl::P
 }
 
 //creates polygonal prism for bridge bounding volume 
-void clip_bounding_volume(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr input_cloud, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr slab_cloud, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr out_cloud) {
+void clip_bounding_volume(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_cloud, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr s_cloud, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr out_cloud) {
     
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_on_hull(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::PointCloud<pcl::PointXYZ>::Ptr slab_cloud_spatial(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud_spatial(new pcl::PointCloud<pcl::PointXYZ>);
 
     pcl::PointXYZRGBNormal minPoint_cloud, maxPoint_cloud, minPoint_extract, maxPoint_extract;
-    pcl::getMinMax3D(*input_cloud, minPoint_cloud, maxPoint_cloud);
-    pcl::getMinMax3D(*slab_cloud, minPoint_extract, maxPoint_extract);
+    pcl::getMinMax3D(*in_cloud, minPoint_cloud, maxPoint_cloud);
+    pcl::getMinMax3D(*s_cloud, minPoint_extract, maxPoint_extract);
     
     //create prism
-    pcl::copyPointCloud(*slab_cloud, *slab_cloud_spatial);
-    pcl::copyPointCloud(*input_cloud, *input_cloud_spatial);
+    pcl::copyPointCloud(*s_cloud, *slab_cloud_spatial);
+    pcl::copyPointCloud(*in_cloud, *input_cloud_spatial);
     std::vector<pcl::Vertices> hull_indices;
     pcl::ConcaveHull<pcl::PointXYZ> hull;
     //pcl::ConvexHull<pcl::PointXYZ> hull;
@@ -214,13 +221,13 @@ void clip_bounding_volume(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr input_clo
         pcl::ExtractPolygonalPrismData<pcl::PointXYZ> prism;
         prism.setInputCloud(input_cloud_spatial);
         prism.setInputPlanarHull(cloud_on_hull);
-        prism.setHeightLimits(-maxPoint_cloud.z, maxPoint_extract.z - minPoint_cloud.z);
+        prism.setHeightLimits(-(maxPoint_extract.z-minPoint_cloud.z),maxPoint_cloud.z-minPoint_cloud.z);
         pcl::PointIndices::Ptr extracted_cloud_indices(new pcl::PointIndices);
 
         prism.segment(*extracted_cloud_indices);
 
         pcl::ExtractIndices<pcl::PointXYZRGBNormal> extract;
-        extract.setInputCloud(input_cloud);
+        extract.setInputCloud(in_cloud);
         extract.setIndices(extracted_cloud_indices);
         clipped_indices = extracted_cloud_indices;
         extract.filter(*out_cloud);
@@ -288,7 +295,7 @@ pcl::PointCloud <pcl::PointXYZRGBNormal>::Ptr colored_kmeans(pcl::PointCloud <pc
         size = cluster_indices[j].indices.size();
         std::cout << "kmeans : Centroid " << j << ": " << size << std::endl;
 
-        //condition which cluster is determined as pile cluster
+        //condition which cluster is determined as pile/bridge cluster
         if (size > biggest_cluster_size) {
             biggest_cluster = j;
             biggest_cluster_size = size;
@@ -385,7 +392,7 @@ void keyboardEventOccurred(const pcl::visualization::KeyboardEvent& event, void*
 void write_evaluation_data(std::vector<double>& time_measurements) {
     std::cout << "\n MAIN:: Evaluate pipeline for: " << bridge_name << std::endl;
 
-    std::string directory = "../../evaluation/pipeline_output/" + bridge_name;
+    std::string directory = "E:/OneDrive/Dokumente/Uni/Bachelorarbeit/code/bridge_segmentation/evaluation/pipeline_output/" + bridge_name;
 
     if (!IsPathExist(directory)) {
         if (mkdir(directory.c_str()) == 0) {
@@ -400,7 +407,7 @@ void write_evaluation_data(std::vector<double>& time_measurements) {
 
     //write time spend
     fstream out_time_measurements;
-    out_time_measurements.open("../../evaluation/pipeline_output/" + bridge_name + "/time_measurements.txt", ios::out | ios::trunc);
+    out_time_measurements.open(directory+ "/time_measurements.txt", ios::out | ios::trunc);
     if (out_time_measurements.is_open()) {
         out_time_measurements << "Pointcloud alignment: " << time_measurements[0];
         out_time_measurements << std::endl << "Normal estimation: " << time_measurements[1];
@@ -417,11 +424,13 @@ void write_evaluation_data(std::vector<double>& time_measurements) {
     }
 
     fstream out_slab_indices;
-    out_slab_indices.open("../../evaluation/pipeline_output/" + bridge_name + "/slab_indices.txt", ios::out | ios::trunc);
+    out_slab_indices.open(directory + "/slab_indices.txt", ios::out | ios::trunc);
     if (out_slab_indices.is_open()) {
-        for (auto i = slab_indices->indices.begin(); i != slab_indices->indices.end(); i++) {
+        out_slab_indices << slab_indices->indices.size() <<";"<< input_cloud->points.size() << std::endl;
+        for (auto i = slab_indices->indices.begin(); i < slab_indices->indices.end()-1; i++) {
             out_slab_indices << *i << "; ";
         }
+        out_slab_indices << *(slab_indices->indices.end() - 1);
         out_slab_indices.close();
     }
     else {
@@ -429,11 +438,13 @@ void write_evaluation_data(std::vector<double>& time_measurements) {
     }
 
     ofstream out_bridge_indices;
-    out_bridge_indices.open("../../evaluation/pipeline_output/" + bridge_name + "/bridge_indices.txt", ios::out | ios::trunc);
+    out_bridge_indices.open(directory + "/bridge_indices.txt", ios::out | ios::trunc);
     if (out_bridge_indices.is_open()) {
-        for (auto i = bridge_indices->indices.begin(); i != bridge_indices->indices.end(); i++) {
+        out_bridge_indices << bridge_indices->indices.size() << ";" << input_cloud->points.size() << std::endl;
+        for (auto i = bridge_indices->indices.begin(); i < bridge_indices->indices.end()-1; i++) {
             out_bridge_indices << *i << "; ";
         }
+        out_bridge_indices << *(bridge_indices->indices.end() - 1);
         out_bridge_indices.close();
     }
     else {
@@ -448,23 +459,27 @@ int main(int argc, char** argv) {
 
     //parse arguments
     if (argc < 2) {
-        std::cout << "Usage: startPipeline [-e Evaluation option] <pcdfile> / <ASCII .txt> / <Mesh .obj> [CAMERA SETTINGS]";
+        std::cout << "Usage: startPipeline [-e Evaluation option] <pcdfile> / <ASCII .txt> / <Mesh .obj> [CAMERA SETTINGS] [CONFIG FILE]";
         return 0;
     }
+    int arg = 1;
 
     //read input pointcloud 
     input_cloud = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
     normals = pcl::PointCloud<pcl::Normal>::Ptr(new pcl::PointCloud<pcl::Normal>);
     
-    std::string file_name = argv[1];
+    std::string file_name = argv[arg];
     bool evaluation_mode = false;
     if (file_name == "-e") {
         evaluation_mode = true;
-        file_name = argv[2];
+        arg++;
     }
+
+    file_name = argv[arg];
     bridge_name = file_name.substr(file_name.find_last_of("/\\")+1);
     std::string::size_type const p(bridge_name.find_first_of("_"));
     bridge_name = bridge_name.substr(0, p);
+    arg++;
 
 
     std::string format = file_name.substr(file_name.find_last_of(".") + 1);
@@ -520,20 +535,67 @@ int main(int argc, char** argv) {
         }
     }  */
 
-
-    //check for camera file and create viewer
+    //check for camera file and config file
+    //create viewer
     viewer = new Viewer("Split overview viewer");
-    if (argc > 3) {
-        file_name = argv[3];
+    bool config_file_exist = false;
+    if (argc > 4)
+    {
+        file_name = argv[arg];
+        arg++;
         viewer->setup_viewer(file_name, 9);
+        config_file_exist = true;
+    }
+    else if (argc > 3) 
+    {
+        file_name = argv[arg];
+        std::string format = file_name.substr(file_name.find_last_of(".") + 1);
+        if (format == "cam") {
+            viewer->setup_viewer(file_name, 9);
+            if (!evaluation_mode) {
+                config_file_exist = true;
+                arg++;
+            }
+        }
+        else {
+            config_file_exist = true;
+            viewer->setup_viewer(9);
+        }
     }
     else if (argc > 2 && !evaluation_mode) {
-        file_name = argv[2];
-        viewer->setup_viewer(file_name, 9);
+        file_name = argv[arg];
+        std::string format = file_name.substr(file_name.find_last_of(".") + 1);
+        if (format == "cam") {
+            viewer->setup_viewer(file_name, 9);
+        }
+        else {
+            config_file_exist = true;
+            viewer->setup_viewer(9);
+        }
     }
-    else{
+    else {
         viewer->setup_viewer(9);
     }
+
+    //loads config file if exists
+    if(config_file_exist) {
+        std::cout << "MAIN:: Read config file."<<std::endl;
+        file_name = argv[arg];
+        FILE* config_file = fopen(file_name.c_str(), "r");
+        if (config_file != NULL) {
+            fscanf_s(config_file, "%i", &config_num_neightbours);
+            fscanf_s(config_file, "%f", &config_smoothness);
+            fscanf_s(config_file, "%f", &config_curvature);
+            fscanf_s(config_file, "%i", &config_num_cluster_first);
+            fscanf_s(config_file, "%i", &config_num_cluster_second);
+            fscanf_s(config_file, "%i", &config_point_neightbourhood);
+            fscanf_s(config_file, "%f", &config_std_deviation);
+        }
+        else {
+            std::cout << "MAIN:: ERROR: failed to open config file.\n";
+        }
+    }
+
     viewer->registerKeyboardCallback(keyboardEventOccurred, (void*)viewer);
 
     //setup detail viewer
@@ -584,6 +646,7 @@ int main(int argc, char** argv) {
                 time_measurements.push_back(time);
 
                 //vis. input
+                std::cout << "PIPELINE:: input_cloud-> "<<input_cloud->size()<<" size."<<std::endl;
                 viewer->visualize_pointcloud(input_cloud, "input_cloud");
                 //detail_viewer->visualize_pointcloud(aligned_cloud, "aligned_cloud");
                 viewer->assign_oriented_bounding_box("input_cloud", 1.0, 0.0, 0.0);
@@ -618,7 +681,7 @@ int main(int argc, char** argv) {
                 viewer->visualize_pointcloud(clustered_cloud, "clustered_cloud", 2);
                 viewer->visualize_pointcloud(slab_cloud, "slab_cloud", 1);
                 BoundingBox bbox = viewer->assign_oriented_bounding_box("slab_cloud", 1.0, 0.0, 0.0);
-                viewer->add_oriented_box(bbox, 0.0, 0.0, 1.0, viewer->get_viewport(0));
+                viewer->add_oriented_bounding_box(bbox, 0.0, 0.0, 1.0, viewer->get_viewport(0));
 
                 //temp add eigen vec vis
                 /*Eigen::Vector3f p1;
@@ -657,6 +720,7 @@ int main(int argc, char** argv) {
                 time_measurements.push_back(time);
 
                 viewer->visualize_pointcloud(clipped_cloud, "extracted_cloud", 3);
+                viewer->assign_bounding_box("extracted_cloud", 1.0f,1.0f,0.0f);
 
                 //============== SUBSAMPLE CLIP VOLUME ===========
 
@@ -675,7 +739,7 @@ int main(int argc, char** argv) {
                 pcl::PointIndices ind1;
                 start_timestamp = omp_get_wtime();
                 first_clustered_extraction_cloud = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-                first_filtered_cloud = colored_kmeans(clipped_cloud, first_clustered_extraction_cloud, 4, ind1);
+                first_filtered_cloud = colored_kmeans(clipped_cloud, first_clustered_extraction_cloud, config_num_cluster_first, ind1);
 
                 time = omp_get_wtime() - start_timestamp;
                 printf("MAIN:: First kmeans took %f seconds\n", time);
@@ -694,7 +758,7 @@ int main(int argc, char** argv) {
                 pcl::PointIndices ind2;
                 start_timestamp = omp_get_wtime();
                 second_clustered_extraction_cloud = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-                second_filtered_cloud = colored_kmeans(first_filtered_cloud, second_clustered_extraction_cloud, 3, ind2);
+                second_filtered_cloud = colored_kmeans(first_filtered_cloud, second_clustered_extraction_cloud, config_num_cluster_second, ind2);
                 
                 time = omp_get_wtime() - start_timestamp;
                 printf("MAIN:: Second kmeans took %f seconds\n", time);
@@ -712,8 +776,8 @@ int main(int argc, char** argv) {
                 bridge_cloud = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
                 pcl::StatisticalOutlierRemoval<pcl::PointXYZRGBNormal> sor(true);
                 sor.setInputCloud(second_filtered_cloud);
-                sor.setMeanK(200);
-                sor.setStddevMulThresh(0.8);
+                sor.setMeanK(config_point_neightbourhood);
+                sor.setStddevMulThresh(config_std_deviation);
                 //sor.filter(*bridge_cloud);
                 sor.filter(ind3.indices);
 
@@ -738,11 +802,11 @@ int main(int argc, char** argv) {
                 std::cout << "\nMAIN:: ========= RESAMPLE CLOUD =========" << std::endl;
                 
                 //================ Resample ================
-                std::cout << "MAIN:: Resample Cloud." << std::endl;
+                /*std::cout << "MAIN:: Resample Cloud." << std::endl;
                
                 start_timestamp = omp_get_wtime();
                 pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr resampled_cloud = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-                /*std::vector<pcl::Vertices> convHull_indices;
+                std::vector<pcl::Vertices> convHull_indices;
                 //pcl::PointCloud<pcl::PointXYZ>::Ptr bridge_cloud_xyz = pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>());
                 pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_on_conhull = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>());
                 int dim = 3;
@@ -763,7 +827,7 @@ int main(int argc, char** argv) {
                 crop_filter.setDim(dim);
 
                 crop_filter.filter(*resampled_cloud);
-                */
+                viewer->visualize_pointcloud(resampled_cloud, "resampled_cloud",viewer->get_viewport(8));
 
                 /*pcl::search::KdTree<pcl::PointXYZRGBNormal>::Ptr tree;
                 pcl::MovingLeastSquares<pcl::PointXYZRGBNormal, pcl::PointNormal> mls_upsampling;
@@ -817,5 +881,9 @@ int main(int argc, char** argv) {
 
         }
     }
+    delete viewer;
+    viewer = nullptr;
+    delete detail_viewer;
+    detail_viewer = nullptr;
     return 0;
 }

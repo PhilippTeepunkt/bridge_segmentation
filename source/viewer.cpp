@@ -97,7 +97,7 @@ void Viewer::add_bounding_box(BoundingBox const& boundingBox, float r, float g, 
     setRepresentationToWireframeForAllActors();
 }
 
-void Viewer::add_oriented_box(BoundingBox const& boundingBox, float r, float g, float b, int viewport) {
+void Viewer::add_oriented_bounding_box(BoundingBox const& boundingBox, float r, float g, float b, int viewport) {
     num_bounding_box_++;
     if (r < 0) {
         r = boundingBox.r;
@@ -114,7 +114,7 @@ BoundingBox Viewer::assign_bounding_box(std::string cloud_name, float r, float g
     if (pcl != pcl_viewport_mapping_.end()) {
         num_bounding_box_++;
         BoundingBox boundingBox = create_boundingbox(pointclouds_.find(pcl->second)->second.second, r, g, b);
-        addCube(boundingBox.minPoint.x, boundingBox.maxPoint.x, boundingBox.minPoint.y, boundingBox.maxPoint.y, boundingBox.minPoint.z, boundingBox.maxPoint.z, boundingBox.r, boundingBox.g, boundingBox.b, "bounding_box_" + cloud_name);
+        addCube(boundingBox.minPoint.x, boundingBox.maxPoint.x, boundingBox.minPoint.y, boundingBox.maxPoint.y, boundingBox.minPoint.z, boundingBox.maxPoint.z, boundingBox.r, boundingBox.g, boundingBox.b, "bounding_box_" + cloud_name, get_viewport(pcl->second));
         return boundingBox;
     }
     else
