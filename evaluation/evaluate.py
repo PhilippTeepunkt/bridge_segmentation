@@ -82,8 +82,15 @@ def confusion_matrix():
 	# F-Measure :: harmonic mean to measure recall and precision at the same time
 	global f_measure_slab
 	global f_measure_bridge
-	f_measure_slab = (2*recall_slab*precision_slab)/(recall_slab+precision_slab)
-	f_measure_bridge = (2*recall_bridge*precision_bridge)/(recall_bridge+precision_bridge)
+	if recall_slab == 0.0 or precision_slab == 0.0:
+		f_measure_slab = 0
+	else:
+		f_measure_slab = (2*recall_slab*precision_slab)/(recall_slab+precision_slab)
+
+	if recall_bridge == 0.0 or precision_bridge == 0.0:
+		f_measure_bridge = 0
+	else:
+		f_measure_bridge = (2*recall_bridge*precision_bridge)/(recall_bridge+precision_bridge)
 	print("\n////////////////// F-MEASURE /////////////////")
 	print("F-Measure Slab: "+str(f_measure_slab))
 	print("F-Measure Bridge: "+str(f_measure_bridge))

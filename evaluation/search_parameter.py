@@ -8,13 +8,14 @@ import time
 import subprocess
 import evaluate
 
-sampling_sizes = [500, 600]
-smoothness_thresholds = [0.6, 0.7]
-curvature_thresholds = [1.6, 1.7]
+sampling_sizes = [400, 500, 600, 700]
+smoothness_thresholds = [0.62]
+curvature_thresholds = [1.6]
 
 num_cluster_first = [4]
 num_cluster_second = [3]
 point_neighbourhood = [200]
+std_deviation = [0.8]
 
 #bridge_files = []
 config_files = []
@@ -24,7 +25,7 @@ def generate_configs():
 	for size in sampling_sizes:
 		for sth in smoothness_thresholds:
 			for cth in curvature_thresholds:
-				config = (size,sth,cth,num_cluster_first[0],num_cluster_second[0],point_neighbourhood[0])
+				config = (size,sth,cth,num_cluster_first[0],num_cluster_second[0],point_neighbourhood[0], std_deviation[0])
 				filename = "./pipeline_configs/Config_"+str(size)+"_"+str(sth)+"_"+str(cth)+"_default.txt"
 				config_file = open(filename,"w")
 				for value in config:
@@ -38,6 +39,7 @@ def search_optimal_config(bridge, file):
 	print("\n////////////////// GET BEST CONFIG FOR "+bridge+" ///////////////////////////////////////\n")
 	for idx, config in enumerate(config_files):
 		abs_path = os.path.abspath(config)
+		print(abs_path)
 		args = [pipeline_program, file,"./ground_truth/"+bridge+"/"+bridge+"_slab_GT.txt","./ground_truth/"+bridge+"/"+bridge+"_bridge_GT.txt", str(idx), abs_path]
 		evaluate.main(args)
 

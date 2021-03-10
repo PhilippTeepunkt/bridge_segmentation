@@ -5,14 +5,14 @@
 #include<pcl/io/ply_io.h>
 #include <pcl/io/pcd_io.h>
 #include <pcl/segmentation/region_growing.h>
+#include <pcl/segmentation/extract_polygonal_prism_data.h>
 #include <pcl/surface/concave_hull.h>
 #include <pcl/surface/convex_hull.h>
-#include <pcl/segmentation/extract_polygonal_prism_data.h>
 #include <pcl/filters/extract_indices.h>
 #include <pcl/filters/crop_hull.h>
-#include <pcl/ml/kmeans.h>
+#include <pcl/filters/random_sample.h>
 #include <pcl/filters/statistical_outlier_removal.h>
-#include <pcl/surface/mls.h>
+#include <pcl/ml/kmeans.h>
 
 #include "viewer.h"
 #include "utils.h"
@@ -32,6 +32,8 @@ pcl::PolygonMesh::Ptr mesh;
 //global clouds and indices for viewer
 //input and alignment clouds
 pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr input_cloud;
+pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr subsampled_cloud;
+pcl::PointIndices::Ptr subsampled_indices;
 
 //slab and cplanar cluster clouds
 pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr clustered_cloud;
@@ -65,8 +67,26 @@ int config_num_cluster_second = 3;
 
 //global normals
 pcl::PointCloud<pcl::Normal>::Ptr normals;
+pcl::PointCloud<pcl::Normal>::Ptr subsampled_normals;
 pcl::PointCloud<pcl::Normal>::Ptr estimated_normals;
 int show_normals = false; //normal toggle
+
+//subsamples input to 2mio points
+pcl::PointIndices subsample_pointcloud(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_cloud, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr out_cloud, pcl::PointIndices::Ptr removed_indices = nullptr) {
+
+    pcl::RandomSample<pcl::PointXYZRGBNormal> rand_sampling;
+    rand_sampling.setInputCloud(in_cloud);
+    rand_sampling.setSeed(std::rand());
+    rand_sampling.setSample((unsigned int)(2000000));
+    if (removed_indices != nullptr) {
+        rand_sampling.getRemovedIndices(*removed_indices);
+    }
+    pcl::PointIndices indices;
+    rand_sampling.filter(indices.indices);
+    pcl::copyPointCloud(*in_cloud, indices, *out_cloud);
+
+    return indices;
+}
 
 //aligns pointcloud by its oriented bounding box
 void align_pointcloud(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_cloud) {
@@ -188,7 +208,7 @@ pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr extract_slab(pcl::PointCloud<pcl::P
             height_condition = h;
         }
     }
-    //std::cout << "\n" << longest_cluster->size() << " -> longest\n" << input_cloud->size() << " -> input\n";
+    //std::cout << "\n" << longest_cluster->size() << " -> longest\n" << subsampled_cloud->size() << " -> input\n";
     pcl::copyPointCloud(*reg.getColoredCloud(), *colored_cloud);
 
     return slab_cluster;
@@ -244,7 +264,9 @@ pcl::PointCloud <pcl::PointXYZRGBNormal>::Ptr colored_kmeans(pcl::PointCloud <pc
     pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_rgbnormalized(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
     normalize_RGB(in_cloud, cloud_rgbnormalized);
 
-    //cloud_rgbnormalized = in_cloud;
+    cloud_rgbnormalized = in_cloud;
+
+    detail_viewer->visualize_pointcloud(cloud_rgbnormalized, "rgb_norm_cloud");
 
     pcl::Kmeans means(static_cast<int>(cloud_rgbnormalized->points.size()), 3);
     means.setClusterSize(num_cluster);
@@ -328,14 +350,14 @@ void keyboardEventOccurred(const pcl::visualization::KeyboardEvent& event, void*
         if (show_normals == 0) {
             pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr current_cloud = detail_viewer->get_current_pointcloud().second;
             if (current_cloud) {
-                detail_viewer->addPointCloudNormals<pcl::PointXYZRGBNormal, pcl::Normal>(current_cloud, normals, 10, 0.5, "detail_normals", 0);
-                detail_viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 0.0, 1.0, 0.0, "detail_normals", 0);
+                detail_viewer->addPointCloudNormals<pcl::PointXYZRGBNormal, pcl::Normal>(current_cloud, subsampled_normals, 10, 0.5, "detail_subsampled_normals", 0);
+                detail_viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 0.0, 1.0, 0.0, "detail_subsampled_normals", 0);
             }
             else { return; }
         }
         else if (show_normals == 1)
         {
-            detail_viewer->removePointCloud("detail_normals");
+            detail_viewer->removePointCloud("detail_subsampled_normals");
             pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr current_cloud = detail_viewer->get_current_pointcloud().second;
             if (current_cloud && estimated_normals != nullptr) {
                 detail_viewer->addPointCloudNormals<pcl::PointXYZRGBNormal, pcl::Normal>(current_cloud, estimated_normals, 10, 0.5, "detail_estimated_normals", 0);
@@ -403,20 +425,20 @@ void write_evaluation_data(std::vector<double>& time_measurements) {
             return;
         }
     }
-    std::cout << "STILL RUNNING." << std::endl;
 
     //write time spend
     fstream out_time_measurements;
     out_time_measurements.open(directory+ "/time_measurements.txt", ios::out | ios::trunc);
     if (out_time_measurements.is_open()) {
-        out_time_measurements << "Pointcloud alignment: " << time_measurements[0];
-        out_time_measurements << std::endl << "Normal estimation: " << time_measurements[1];
-        out_time_measurements << std::endl << "Slab extraction: " << time_measurements[2];
-        out_time_measurements << std::endl << "Clipping: " << time_measurements[3];
-        out_time_measurements << std::endl << "First kmeans: " << time_measurements[4];
-        out_time_measurements << std::endl << "Second kmeans: " << time_measurements[5];
-        out_time_measurements << std::endl << "outlier removal: " << time_measurements[6];
-        out_time_measurements << std::endl << "Whole pipeline: " << time_measurements[7];
+        out_time_measurements << "Pointcloud subsampling: " << time_measurements[0];
+        out_time_measurements << "Pointcloud alignment: " << time_measurements[1];
+        out_time_measurements << std::endl << "Normal estimation: " << time_measurements[2];
+        out_time_measurements << std::endl << "Slab extraction: " << time_measurements[3];
+        out_time_measurements << std::endl << "Clipping: " << time_measurements[4];
+        out_time_measurements << std::endl << "First kmeans: " << time_measurements[5];
+        out_time_measurements << std::endl << "Second kmeans: " << time_measurements[6];
+        out_time_measurements << std::endl << "outlier removal: " << time_measurements[7];
+        out_time_measurements << std::endl << "Whole pipeline: " << time_measurements[8];
         out_time_measurements.close();
     }
     else {
@@ -426,7 +448,7 @@ void write_evaluation_data(std::vector<double>& time_measurements) {
     fstream out_slab_indices;
     out_slab_indices.open(directory + "/slab_indices.txt", ios::out | ios::trunc);
     if (out_slab_indices.is_open()) {
-        out_slab_indices << slab_indices->indices.size() <<";"<< input_cloud->points.size() << std::endl;
+        out_slab_indices << slab_indices->indices.size() <<";"<< subsampled_cloud->points.size() << std::endl;
         for (auto i = slab_indices->indices.begin(); i < slab_indices->indices.end()-1; i++) {
             out_slab_indices << *i << "; ";
         }
@@ -440,7 +462,7 @@ void write_evaluation_data(std::vector<double>& time_measurements) {
     ofstream out_bridge_indices;
     out_bridge_indices.open(directory + "/bridge_indices.txt", ios::out | ios::trunc);
     if (out_bridge_indices.is_open()) {
-        out_bridge_indices << bridge_indices->indices.size() << ";" << input_cloud->points.size() << std::endl;
+        out_bridge_indices << bridge_indices->indices.size() << ";" << subsampled_cloud->points.size() << std::endl;
         for (auto i = bridge_indices->indices.begin(); i < bridge_indices->indices.end()-1; i++) {
             out_bridge_indices << *i << "; ";
         }
@@ -467,6 +489,7 @@ int main(int argc, char** argv) {
     //read input pointcloud 
     input_cloud = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
     normals = pcl::PointCloud<pcl::Normal>::Ptr(new pcl::PointCloud<pcl::Normal>);
+    subsampled_normals = pcl::PointCloud<pcl::Normal>::Ptr(new pcl::PointCloud<pcl::Normal>);
     
     std::string file_name = argv[arg];
     bool evaluation_mode = false;
@@ -481,7 +504,7 @@ int main(int argc, char** argv) {
     bridge_name = bridge_name.substr(0, p);
     arg++;
 
-
+    
     std::string format = file_name.substr(file_name.find_last_of(".") + 1);
     if (format == "pcd") {
         std::cout << "Read pcd file." << std::endl;
@@ -504,8 +527,9 @@ int main(int argc, char** argv) {
     else if (format == "obj") {
         //mesh = pcl::PolygonMesh::Ptr(new pcl::PolygonMesh());
         //pcl::io::loadOBJFile(file_name, *mesh);
-        sample_mesh(file_name, 2000000, input_cloud);
-        pcl::copyPointCloud(*input_cloud, *normals);
+        subsampled_cloud = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+        sample_mesh(file_name, 2000000, subsampled_cloud);
+        pcl::copyPointCloud(*subsampled_cloud, *subsampled_normals);
     }
     else {
         std::cout << "MAIN:: File format ." << format << " of " << file_name << " not supported. Valid formats: .pcd .txt .obj" << std::endl;
@@ -590,6 +614,7 @@ int main(int argc, char** argv) {
             fscanf_s(config_file, "%i", &config_num_cluster_second);
             fscanf_s(config_file, "%i", &config_point_neightbourhood);
             fscanf_s(config_file, "%f", &config_std_deviation);
+            std::printf("MAIN:: Readed config file: \n%i number of neighbours, \n%f smoothness, \n%f curvature, \n%i number of cluster first, \n%i number of cluster second, \n%i point neighbourhood, \n%f std. deviation",config_num_neightbours, config_smoothness, config_curvature, config_num_cluster_first, config_num_cluster_second, config_point_neightbourhood, config_std_deviation);
         }
         else {
             std::cout << "MAIN:: ERROR: failed to open config file.\n";
@@ -604,7 +629,7 @@ int main(int argc, char** argv) {
     detail_viewer->registerKeyboardCallback(keyboardEventOccurred, (void*)detail_viewer);
 
     /*pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr temp_cloud = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-    pcl::copyPointCloud(*input_cloud, *bridge_indices, *temp_cloud);
+    pcl::copyPointCloud(*subsampled_cloud, *bridge_indices, *temp_cloud);
     detail_viewer->visualize_pointcloud(temp_cloud, "temp");
     */
     double complete_start_timestamp = omp_get_wtime();
@@ -631,47 +656,58 @@ int main(int argc, char** argv) {
             {
                 std::vector<double> time_measurements;
                 double time = 0;
+                double start_timestamp = complete_start_timestamp;
 
                 //=============== GENERAL =================
                 std::printf("MAIN:: Start Pipeline on thread %d of %d \n", omp_get_thread_num(), omp_get_num_threads());
-                double start_timestamp = omp_get_wtime();
+
+                //=============== SUBSAMPLING ================
+                std::cout << "\nMAIN:: ========= SUBSAMPLE POINTCLOUD =========" << std::endl;
+                start_timestamp = omp_get_wtime();
+                if (subsampled_cloud == nullptr) {
+                    subsampled_cloud = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+                    subsampled_indices = pcl::PointIndices::Ptr(new pcl::PointIndices);
+                    *subsampled_indices = subsample_pointcloud(input_cloud, subsampled_cloud);
+                }
+                time = omp_get_wtime() - start_timestamp;
+                printf("MAIN:: Pointcloud subsampling took %f seconds\n", time);
+                time_measurements.push_back(time);
+                //detail_viewer->visualize_pointcloud(input_cloud, "input_cloud");
 
                 std::cout << "\nMAIN:: ========= ALIGN POINTCLOUD =========" << std::endl;
-
                 //=============== ALIGN POINTCLOUD ===============
-                align_pointcloud(input_cloud);
+                start_timestamp = omp_get_wtime();
+                align_pointcloud(subsampled_cloud);
 
                 time = omp_get_wtime() - start_timestamp;
                 printf("MAIN:: Pointcloud alignment took %f seconds\n", time);
                 time_measurements.push_back(time);
 
                 //vis. input
-                std::cout << "PIPELINE:: input_cloud-> "<<input_cloud->size()<<" size."<<std::endl;
-                viewer->visualize_pointcloud(input_cloud, "input_cloud");
+                std::cout << "PIPELINE:: subsampled_cloud-> "<<subsampled_cloud->size()<<" size."<<std::endl;
+                viewer->visualize_pointcloud(subsampled_cloud, "subsampled_cloud");
                 //detail_viewer->visualize_pointcloud(aligned_cloud, "aligned_cloud");
-                viewer->assign_oriented_bounding_box("input_cloud", 1.0, 0.0, 0.0);
+                viewer->assign_oriented_bounding_box("subsampled_cloud", 1.0, 0.0, 0.0);
 
                 std::cout << "\nMAIN:: ========= NORMAL ESTIMATION =========" << std::endl;
-
                 //=============== NORMAL ESTIMATION ==============
                 start_timestamp = omp_get_wtime();
                 std::cout << "MAIN:: Estimate normals." << std::endl;
                 estimated_normals = pcl::PointCloud<pcl::Normal>::Ptr(new pcl::PointCloud<pcl::Normal>);
-                estimate_normals(input_cloud, estimated_normals, true);
+                estimate_normals(subsampled_cloud, estimated_normals, true);
 
                 time = omp_get_wtime() - start_timestamp;
                 printf("MAIN:: Normal estimation took %f seconds\n", time);
                 time_measurements.push_back(time);
 
-                //viewer->remove_pointcloud("input_cloud");
+                //viewer->remove_pointcloud("subsampled_cloud");
 
                 std::cout << "\nMAIN:: ========= SLAB EXTRACTION =========" << std::endl;
-
                 //================ SLAB EXTRACTION ==============
                 std::cout << "MAIN:: Extract slab." << std::endl;
                 start_timestamp = omp_get_wtime();
                 clustered_cloud = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-                slab_cloud = extract_slab(input_cloud, clustered_cloud);
+                slab_cloud = extract_slab(subsampled_cloud, clustered_cloud);
 
                 time = omp_get_wtime() - start_timestamp;
                 printf("MAIN:: Slab extraction took %f seconds\n", time);
@@ -704,16 +740,15 @@ int main(int argc, char** argv) {
                 */
 
                 //=============== REALIGN POINTCLOUD ===============
-                realign_by_slab(input_cloud, slab_cloud);
+                realign_by_slab(subsampled_cloud, slab_cloud);
 
                 std::cout << "\nMAIN:: ========= CLIP POINTCLOUD =========" << std::endl;
-
                 //============== CLIP CLOUD ================
                 std::cout << "MAIN:: Clip cloud." << std::endl;
                 start_timestamp = omp_get_wtime();
                 clipped_cloud = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-                clip_bounding_volume(input_cloud, slab_cloud, clipped_cloud);
-                //clip_bounding_volume(input_cloud, slab_cloud, clipped_cloud);
+                clip_bounding_volume(subsampled_cloud, slab_cloud, clipped_cloud);
+                //clip_bounding_volume(subsampled_cloud, slab_cloud, clipped_cloud);
 
                 time = omp_get_wtime() - start_timestamp;
                 printf("MAIN:: Cloud clipping took %f seconds\n", time);
@@ -796,7 +831,7 @@ int main(int argc, char** argv) {
                 viewer->visualize_pointcloud(bridge_cloud, "bridge_cloud", 7);
 
                 /*pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr temp = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-                pcl::copyPointCloud(*input_cloud, *slab_indices, *temp);
+                pcl::copyPointCloud(*subsampled_cloud, *slab_indices, *temp);
                 viewer->visualize_pointcloud(temp,"temp",8);*/
 
                 std::cout << "\nMAIN:: ========= RESAMPLE CLOUD =========" << std::endl;
@@ -850,10 +885,13 @@ int main(int argc, char** argv) {
                 printf("MAIN:: Cloud resampling took %f seconds\n", time);
 
                 pcl::copyPointCloud(*temp_cloud_res, *resampled_cloud);
-
-                detail_viewer->visualize_pointcloud(resampled_cloud, "resampled_cloud");
-                std::cout << "Number of points resampled: " << temp_cloud_res->points.size() << std::endl;
-                */
+                
+                pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr resampled_cloud = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+                *resampled_cloud += *bridge_cloud;
+                *resampled_cloud += *slab_cloud;
+                viewer->visualize_pointcloud(resampled_cloud, "resampled_cloud", 8);
+                //std::cout << "Number of points resampled: " << temp_cloud_res->points.size() << std::endl;*/
+                
                 //================ END ===============
                 time = omp_get_wtime() - complete_start_timestamp;
                 printf("\nMAIN:: Pipline took %f seconds\n", time);
@@ -867,23 +905,27 @@ int main(int argc, char** argv) {
                 //write result persistent
                 pcl::io::savePCDFile("output_bridge.pcd", *bridge_cloud, true);
 
-                if (evaluation_mode) {
+                /*if (evaluation_mode) {
                     close_flag = true;
                     #pragma omp flush(close_flag)
-                }
+                }*/
             }
 
-            //additional thread for subsampling
+            //additional thread for work with full res
             /*#pragma omp section
             {
-                subsample_data(*input_cloud, subsampled_input, 0.1);
-            }*/
+                while (!clipping_flag) {
+                    std::this_thread::sleep_for(100ms);
+                }
 
+                pcl::
+
+            }*/
         }
     }
-    delete viewer;
+    /*delete viewer;
     viewer = nullptr;
     delete detail_viewer;
     detail_viewer = nullptr;
-    return 0;
+    return 0;*/
 }
