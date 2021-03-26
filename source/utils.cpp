@@ -8,12 +8,27 @@ BoundingBox create_boundingbox(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_c
 	boundingBox.r = r;
 	boundingBox.g = g;
 	boundingBox.b = b;
-    boundingBox.dim_x = boundingBox.maxPoint.x - boundingBox.minPoint.x;
-    boundingBox.dim_y = boundingBox.maxPoint.y - boundingBox.minPoint.y;
-    boundingBox.dim_z = boundingBox.maxPoint.z - boundingBox.minPoint.z;
+    boundingBox.dim_x = std::abs(boundingBox.maxPoint.x - boundingBox.minPoint.x);
+    boundingBox.dim_y = std::abs(boundingBox.maxPoint.y - boundingBox.minPoint.y);
+    boundingBox.dim_z = std::abs(boundingBox.maxPoint.z - boundingBox.minPoint.z);
 
 	return boundingBox;
 }
+
+//creates boundingbox for a given pointcloud
+BoundingBox create_boundingbox(pcl::PointCloud<pcl::PointXYZRGBNormal> in_cloud, float r, float g, float b) {
+    BoundingBox boundingBox;
+    pcl::getMinMax3D(in_cloud, boundingBox.minPoint, boundingBox.maxPoint);
+    boundingBox.r = r;
+    boundingBox.g = g;
+    boundingBox.b = b;
+    boundingBox.dim_x = std::abs(boundingBox.maxPoint.x - boundingBox.minPoint.x);
+    boundingBox.dim_y = std::abs(boundingBox.maxPoint.y - boundingBox.minPoint.y);
+    boundingBox.dim_z = std::abs(boundingBox.maxPoint.z - boundingBox.minPoint.z);
+
+    return boundingBox;
+}
+
 //creates an oriented bounding box
 BoundingBox create_oriented_boundingbox(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_cloud, float r, float g, float b, Eigen::Matrix4f &projection) {
 
@@ -199,6 +214,22 @@ void sample_mesh(std::string file_name, int number_samples,pcl::PointCloud<pcl::
     uniform_sampling(polydata1, number_samples, true, true, *out_cloud);
 }
 
+void sample_mesh(pcl::PolygonMesh mesh, int number_samples, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr out_cloud) {
+    vtkSmartPointer<vtkPolyData> polydata1 = vtkSmartPointer<vtkPolyData>::New();
+    pcl::VTKUtils::convertToVTK(mesh, polydata1);
+
+    vtkSmartPointer<vtkTriangleFilter> triangleFilter = vtkSmartPointer<vtkTriangleFilter>::New();
+    triangleFilter->SetInputData(polydata1);
+    triangleFilter->Update();
+
+    vtkSmartPointer<vtkPolyDataMapper> triangleMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
+    triangleMapper->SetInputConnection(triangleFilter->GetOutputPort());
+    triangleMapper->Update();
+    polydata1 = triangleMapper->GetInput();
+
+    uniform_sampling(polydata1, number_samples, true, true, *out_cloud);
+}
+
 //reads txt cloud file 
 bool read_ASCII(std::string filename, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr c, pcl::PointCloud <pcl::Normal>::Ptr n) {
     std::cout << "MAIN:: Loading ASCII point cloud with normals ..." << std::endl;
@@ -273,6 +304,18 @@ void estimate_normals(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_cloud, pcl
     if (copy_to_cloud) {
         pcl::copyPointCloud(*normals, *in_cloud);
     }
+
+    /*pcl::PrincipalCurvaturesEstimation<pcl::PointXYZ, pcl::Normal, pcl::PrincipalCurvatures> principal_curvatures_estimation;
+    principal_curvatures_estimation.setInputCloud(cloud);
+    principal_curvatures_estimation.setInputNormals(normals);
+    principal_curvatures_estimation.setSearchMethod(search_tree);
+    principal_curvatures_estimation.setKSearch(50);
+    pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr principal_curvatures(new pcl::PointCloud<pcl::PrincipalCurvatures>());
+    principal_curvatures_estimation.compute(*principal_curvatures);
+    
+    if (copy_to_cloud) {
+        pcl::copyPointCloud(*principal_curvatures, *in_cloud);
+    }*/
 }
 
 //color normalization

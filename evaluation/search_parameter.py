@@ -5,13 +5,18 @@ from shutil import copyfile
 import sys
 import os
 import time
-import subprocess
+import concurrent.futures
 import evaluate
 
-sampling_sizes = [400, 500, 600, 700]
-smoothness_thresholds = [0.62]
-curvature_thresholds = [1.6]
+sampling_densitys = [2000000]
 
+#slab extraction
+neighbouhood_sizes = [400, 500, 600, 700]
+smoothness_thresholds = [0.62]
+#curvature_thresholds = [1.6]
+residuals_thresholds = [0.001]
+
+#kmeans color clust
 num_cluster_first = [4]
 num_cluster_second = [3]
 point_neighbourhood = [200]
@@ -22,9 +27,9 @@ config_files = []
 pipeline_program = ""
 
 def generate_configs():
-	for size in sampling_sizes:
+	for size in neighbouhood_sizes:
 		for sth in smoothness_thresholds:
-			for cth in curvature_thresholds:
+			for cth in residuals_thresholds:
 				config = (size,sth,cth,num_cluster_first[0],num_cluster_second[0],point_neighbourhood[0], std_deviation[0])
 				filename = "./pipeline_configs/Config_"+str(size)+"_"+str(sth)+"_"+str(cth)+"_default.txt"
 				config_file = open(filename,"w")
@@ -71,11 +76,22 @@ if __name__ == "__main__":
 	pcl_file_dir = sys.argv[2]
 	files = glob.glob(pcl_file_dir+"/*.pcd")
 	print(files)
+
+	# cuncurrency
+	threadnum = os.cpu_count()
+		print("Execute in parallel with "+str(threadnum)+" threads.")
+	futures = []
+	pool = concurrent.futures.ProcessPoolExecutor(max_workers = threadnum)
+	
+	# determine best config per bridge
 	for file in files:
 		bridge_name = os.path.splitext(os.path.basename(file))[0].split("_")[0]
+		futures.append(pool.submit(search_optimal_config, bridge_name, file))
 
-		# determine best config per bridge		
-		search_optimal_config(bridge_name, file)
+	while not concurrent.futures.wait(futures):
+		pass
+
+	print("\n\ndone.")
 
 
 

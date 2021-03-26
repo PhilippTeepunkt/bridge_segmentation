@@ -13,6 +13,8 @@
 #include <vtkTriangle.h>
 #include <vtkTriangleFilter.h>
 #include <vtkPolyDataMapper.h>
+#include <pcl/surface/vtk_smoothing/vtk_utils.h>
+#include <pcl/features/principal_curvatures.h>
 
 #include <pcl/features/normal_3d_omp.h>
 
@@ -41,11 +43,14 @@ struct BoundingBox
 
 static Eigen::Matrix4f IDENTITY = Eigen::Matrix4f::Identity();
 
-BoundingBox create_boundingbox(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_cloud, float r, float g, float b);
+BoundingBox create_boundingbox(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_cloud, float r = 0.0, float g = 0.0, float b = 0.0);
+BoundingBox create_boundingbox(pcl::PointCloud<pcl::PointXYZRGBNormal> in_cloud, float r = 0.0, float g = 0.0, float b = 0.0);
 BoundingBox create_oriented_boundingbox(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_cloud, float r, float g, float b, Eigen::Matrix4f &projection = IDENTITY);
 
 void uniform_sampling(vtkSmartPointer<vtkPolyData> polydata, size_t n_samples, bool calc_normal, bool calc_color, pcl::PointCloud<pcl::PointXYZRGBNormal>& cloud_out);
+
 void sample_mesh(std::string file_name, int number_samples, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr out_cloud);
+void sample_mesh(pcl::PolygonMesh mesh, int number_samples, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr out_cloud);
 
 bool read_ASCII(std::string filename, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr c, pcl::PointCloud <pcl::Normal>::Ptr n = nullptr);
 

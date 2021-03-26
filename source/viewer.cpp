@@ -67,7 +67,7 @@ bool Viewer::visualize_pointcloud(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr i
     pcl_viewport_mapping_.insert({cloud_name,viewport});
 
     pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGBNormal> rgb(in_cloud);
-    addPointCloud<pcl::PointXYZRGBNormal>(in_cloud, rgb, cloud_name, get_viewport(viewport));
+    addPointCloud<pcl::PointXYZRGBNormal>(in_cloud, rgb, cloud_name, vp);
     return true;
 }
 
@@ -93,7 +93,8 @@ void Viewer::add_bounding_box(BoundingBox const& boundingBox, float r, float g, 
         g = boundingBox.g;
         b = boundingBox.b;
     }
-    addCube(boundingBox.minPoint.x, boundingBox.maxPoint.x, boundingBox.minPoint.y, boundingBox.maxPoint.y, boundingBox.minPoint.z, boundingBox.maxPoint.z, r, g, b, "bounding_box_"+num_bounding_box_, viewport);
+    const std::string name = "bbox_"+std::to_string(num_bounding_box_);
+    addCube(boundingBox.minPoint.x, boundingBox.maxPoint.x, boundingBox.minPoint.y, boundingBox.maxPoint.y, boundingBox.minPoint.z, boundingBox.maxPoint.z, r, g, b, name, viewport);
     setRepresentationToWireframeForAllActors();
 }
 
@@ -104,8 +105,9 @@ void Viewer::add_oriented_bounding_box(BoundingBox const& boundingBox, float r, 
         g = boundingBox.g;
         b = boundingBox.b;
     }
-    addCube(boundingBox.transform, boundingBox.rotation, boundingBox.dim_x, boundingBox.dim_y, boundingBox.dim_z, "o_bounding_box_" + num_bounding_box_, viewport);
-    setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, r, g, b, "o_bounding_box_" + num_bounding_box_);
+    std::string name = "bbox_" + num_bounding_box_;
+    addCube(boundingBox.transform, boundingBox.rotation, boundingBox.dim_x, boundingBox.dim_y, boundingBox.dim_z, name.c_str(), viewport);
+    setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, r, g, b, name.c_str());
     setRepresentationToWireframeForAllActors();
 }
 
@@ -114,7 +116,8 @@ BoundingBox Viewer::assign_bounding_box(std::string cloud_name, float r, float g
     if (pcl != pcl_viewport_mapping_.end()) {
         num_bounding_box_++;
         BoundingBox boundingBox = create_boundingbox(pointclouds_.find(pcl->second)->second.second, r, g, b);
-        addCube(boundingBox.minPoint.x, boundingBox.maxPoint.x, boundingBox.minPoint.y, boundingBox.maxPoint.y, boundingBox.minPoint.z, boundingBox.maxPoint.z, boundingBox.r, boundingBox.g, boundingBox.b, "bounding_box_" + cloud_name, get_viewport(pcl->second));
+        std::string name = "bbox_" + num_bounding_box_;
+        addCube(boundingBox.minPoint.x, boundingBox.maxPoint.x, boundingBox.minPoint.y, boundingBox.maxPoint.y, boundingBox.minPoint.z, boundingBox.maxPoint.z, boundingBox.r, boundingBox.g, boundingBox.b, name.c_str(), get_viewport(pcl->second));
         return boundingBox;
     }
     else
@@ -130,9 +133,10 @@ BoundingBox Viewer::assign_oriented_bounding_box(std::string cloud_name, float r
     auto pcl = pcl_viewport_mapping_.find(cloud_name);
     if (pcl != pcl_viewport_mapping_.end()) {
         num_bounding_box_++;
+        std::string name = "bbox_" + num_bounding_box_;
         BoundingBox boundingBox = create_oriented_boundingbox(pointclouds_.find(pcl->second)->second.second, r, g, b);
-        addCube(boundingBox.transform, boundingBox.rotation, boundingBox.dim_x, boundingBox.dim_y, boundingBox.dim_z, "bounding_box_"+cloud_name, get_viewport(pcl->second));
-        setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, boundingBox.r, boundingBox.g, boundingBox.b, "bounding_box_"+ cloud_name);
+        addCube(boundingBox.transform, boundingBox.rotation, boundingBox.dim_x, boundingBox.dim_y, boundingBox.dim_z, name.c_str(), get_viewport(pcl->second));
+        setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, boundingBox.r, boundingBox.g, boundingBox.b, name.c_str());
         return boundingBox;
     }
     else
