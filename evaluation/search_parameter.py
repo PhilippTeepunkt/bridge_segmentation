@@ -84,9 +84,6 @@ if __name__ == "__main__":
 
 	# cuncurrency
 	threadnum = os.cpu_count()
-
-	#TEMP
-	threadnum = 2
 	
 	print("Execute in parallel with "+str(threadnum)+" threads.")
 	futures = []
