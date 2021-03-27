@@ -47,15 +47,16 @@ pcl::PointIndices::Ptr subsampled_indices;
 pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr clustered_cloud;
 pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr slab_cloud;
 pcl::PointIndices::Ptr slab_indices;
+std::string config = "DEFAULT";
 float config_sampling_radius = 0.027;
 int config_sampling_density = 2000000;
 int config_num_neightbours = 550;
-float config_smoothness = 0.82;
-float config_curvature = 0.008; 
-int config_point_neightbourhood = 450;
+float config_smoothness = 0.81;
+float config_curvature = 0.05; 
+int config_point_neightbourhood = 300;//450;
 float config_std_deviation = 0.7;
-int config_num_cluster_first = 3;
-int config_num_cluster_second = 4;
+//int config_num_cluster = 3;
+int config_num_cluster = 5;
 //float config_residuals_threshold = 0.36; 
 
 //clipping cloud and indices
@@ -75,21 +76,22 @@ pcl::PointIndices::Ptr color_filtered_indices;
 pcl::PointIndices::Ptr outlier_indices;
 
 //splitting
+std::vector<pcl::PointIndices::Ptr> part_indices; //clipping parts
 std::vector<BoundingBox> splitted_bounds;
 std::vector<bool> labels;
+std::vector<BoundingBox> classification_boxes;
 
 //final output cloud
 pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr bridge_cloud;
 pcl::PointIndices::Ptr bridge_indices;
 
 //resampling
-std::vector<pcl::PointIndices::Ptr> part_indices; //clipping parts for each thread to crop
-int dim = 3;
+/*int dim = 3;
 std::vector<pcl::Vertices> concave_indices;
 pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_on_conhull;
 pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr resampled_cloud;
 pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr concave_sampled_cloud;
-int ready = 0;
+int ready = 0;*/
 
 //global normals
 pcl::PointCloud<pcl::Normal>::Ptr normals;
@@ -307,7 +309,7 @@ pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr extract_slab(pcl::PointCloud<pcl::P
 }
 
 //creates polygonal prism for bridge bounding volume 
-void clip_bounding_volume(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_cloud, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr s_cloud, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr out_cloud) {
+void clip_bounding_volume(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_cloud, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr s_cloud, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr out_cloud, pcl::PointIndices::Ptr extracted_cloud_indices) {
     
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_on_hull(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::PointCloud<pcl::PointXYZ>::Ptr slab_cloud_spatial(new pcl::PointCloud<pcl::PointXYZ>);
@@ -334,7 +336,6 @@ void clip_bounding_volume(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_cloud,
         prism.setInputCloud(input_cloud_spatial);
         prism.setInputPlanarHull(cloud_on_hull);
         prism.setHeightLimits(-(maxPoint_extract.z-minPoint_cloud.z),maxPoint_cloud.z-minPoint_cloud.z);
-        pcl::PointIndices::Ptr extracted_cloud_indices(new pcl::PointIndices);
 
         prism.segment(*extracted_cloud_indices);
 
@@ -351,7 +352,7 @@ void clip_bounding_volume(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_cloud,
 }
 
 //filter by color with kmeans
-void color_filtering(pcl::PointCloud <pcl::PointXYZRGBNormal>::Ptr const in_cloud, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr colored_cloud, unsigned int num_cluster, pcl::PointIndices& out_indices, Eigen::Vector3f reference_color, int number_output_clusters = 2) {
+void color_filtering(pcl::PointCloud <pcl::PointXYZRGBNormal>::Ptr const in_cloud, pcl::PointIndices::Ptr original_indices, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr colored_cloud, unsigned int num_cluster, pcl::PointIndices &out_clipped_indices, pcl::PointIndices::Ptr out_original_indices, Eigen::Vector3f reference_color, int number_output_clusters = 2) {
 //void color_filtering(pcl::PointCloud <pcl::PointXYZRGBNormal>::Ptr const in_cloud, unsigned int num_cluster, pcl::PointIndices &out_indices) {
 
     pcl::Kmeans means(static_cast<int>(in_cloud->points.size()), 3);
@@ -375,6 +376,7 @@ void color_filtering(pcl::PointCloud <pcl::PointXYZRGBNormal>::Ptr const in_clou
     //assign each point to cluster
     //std::cout << "Kmeans : Extract kmeans cluster" << std::endl;
     std::vector<pcl::PointIndices> cluster_indices;
+    std::vector<pcl::PointIndices> out_i;
     for (size_t i = 0; i < formated_points.size(); i++) {
         unsigned int closest_centroid = 0;
         float distance = std::numeric_limits<float>::max();
@@ -386,28 +388,34 @@ void color_filtering(pcl::PointCloud <pcl::PointXYZRGBNormal>::Ptr const in_clou
                 closest_centroid = c;
             }
         }
+
         while (cluster_indices.size() <= closest_centroid) {
             cluster_indices.push_back(pcl::PointIndices());
+            out_i.push_back(pcl::PointIndices());
         }
         cluster_indices[closest_centroid].indices.push_back(i);
+        out_i[closest_centroid].indices.push_back(original_indices->indices[i]);
     }
 
     //sort cluster by centroid distance to reference color
-    std::vector<size_t> centroid_indexes(centroids.size());
-    std::iota(centroid_indexes.begin(), centroid_indexes.end(), 0);
+    std::vector<size_t> centroid_indices(centroids.size());
+    std::iota(centroid_indices.begin(), centroid_indices.end(), 0);
 
-    std::sort(std::begin(centroid_indexes), std::end(centroid_indexes), [&centroids, &reference_color, &means](size_t idx1, size_t idx2) {
+    std::sort(std::begin(centroid_indices), std::end(centroid_indices), [&centroids, &reference_color, &means](size_t idx1, size_t idx2) {
         std::vector<float> ref{ reference_color[0],reference_color[1],reference_color[2] };
         float distance_idx1 = means.distance(centroids[idx1], ref);
         float distance_idx2 = means.distance(centroids[idx2], ref);
         return distance_idx1 < distance_idx1;
     });
 
+    //output specified number of clusters from front
     for (int i = 0; i < number_output_clusters; i++) {
-        out_indices.indices.insert(out_indices.indices.end(), cluster_indices[centroid_indexes[i]].indices.begin(), cluster_indices[centroid_indexes[i]].indices.end());
+        out_clipped_indices.indices.insert(out_clipped_indices.indices.end(), cluster_indices[centroid_indices[i]].indices.begin(), cluster_indices[centroid_indices[i]].indices.end());
+        out_original_indices->indices.insert(out_original_indices->indices.end(), out_i[centroid_indices[i]].indices.begin(), out_i[centroid_indices[i]].indices.end());
     }
+    std::sort(out_original_indices->indices.begin(), out_original_indices->indices.end());
 
-    //color clusters
+    //generate color clusters
     for (size_t j = 0; j < centroids.size(); j++) {
         //int size = cluster_indices[j].indices.size();
         //std::cout << "kmeans : Centroid " << j << ": " << size << std::endl;
@@ -533,7 +541,7 @@ void keyboardEventOccurred(const pcl::visualization::KeyboardEvent& event, void*
 void write_evaluation_data(std::vector<double>& time_measurements) {
     std::cout << "\n MAIN:: Evaluate pipeline for: " << bridge_name << std::endl;
 
-    std::string directory = "E:/OneDrive/Dokumente/Uni/Bachelorarbeit/code/bridge_segmentation/evaluation/pipeline_output/" + bridge_name;
+    std::string directory = "E:/OneDrive/Dokumente/Uni/Bachelorarbeit/code/bridge_segmentation/evaluation/pipeline_output/" + bridge_name +"_"+config;
 
     if (!IsPathExist(directory)) {
         if (mkdir(directory.c_str()) == 0) {
@@ -731,6 +739,9 @@ int main(int argc, char** argv) {
     if(config_file_exist) {
         std::cout << "MAIN:: Read config file."<<std::endl;
         file_name = argv[arg];
+        config = file_name.substr(file_name.find_last_of("/\\") + 1);
+        std::string::size_type const p(config.find_last_of("."));
+        config = config.substr(0, p);
         FILE* config_file = fopen(file_name.c_str(), "r");
         if (config_file != NULL) {
             fscanf_s(config_file, "%i", &config_sampling_density);
@@ -738,11 +749,11 @@ int main(int argc, char** argv) {
             fscanf_s(config_file, "%f", &config_smoothness);
             fscanf_s(config_file, "%f", &config_curvature);
             //fscanf_s(config_file, "%f", &config_residuals_threshold);
-            fscanf_s(config_file, "%i", &config_num_cluster_first);
-            fscanf_s(config_file, "%i", &config_num_cluster_second);
+            fscanf_s(config_file, "%i", &config_num_cluster);
+            //fscanf_s(config_file, "%i", &config_num_cluster_second);
             fscanf_s(config_file, "%i", &config_point_neightbourhood);
             fscanf_s(config_file, "%f", &config_std_deviation);
-            std::printf("MAIN:: Readed config file: \n%i number of neighbours, \n%f smoothness, \n%f curvature_threshold, \n%i number of cluster first, \n%i number of cluster second, \n%i point neighbourhood, \n%f std. deviation", config_num_neightbours, config_smoothness, config_curvature, config_num_cluster_first, config_num_cluster_second, config_point_neightbourhood, config_std_deviation);
+            std::printf("MAIN:: Readed config file: \n%i number of neighbours, \n%f smoothness, \n%f curvature_threshold, \n%i number of color cluster, \n%i point neighbourhood, \n%f std. deviation", config_num_neightbours, config_smoothness, config_curvature, config_num_cluster,  config_point_neightbourhood, config_std_deviation);
         }
         else {
             std::cout << "MAIN:: ERROR: failed to open config file.\n";
@@ -776,10 +787,11 @@ int main(int argc, char** argv) {
                 viewer->spinOnce(100);
                 std::this_thread::sleep_for(100ms);
             }
+            std::this_thread::sleep_for(1000ms);
         }
 
         //nested parallelism
-        #pragma omp parallel num_threads(omp_get_max_threads()-1) shared(ready, part_indices, splitted_bounds, split_flag, config_num_cluster_first) // starts a new team
+        #pragma omp parallel num_threads(omp_get_max_threads()-1) shared(part_indices, splitted_bounds, split_flag, config_num_cluster) // starts a new team
         {
             //main pipeline
             #pragma omp single nowait
@@ -895,7 +907,8 @@ int main(int argc, char** argv) {
                 std::cout << "MAIN:: Clip cloud." << std::endl;
                 start_timestamp = omp_get_wtime();
                 clipped_cloud = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-                clip_bounding_volume(subsampled_cloud, slab_cloud, clipped_cloud);
+                clipped_indices = pcl::PointIndices::Ptr(new pcl::PointIndices);
+                clip_bounding_volume(subsampled_cloud, slab_cloud, clipped_cloud, clipped_indices);
                 //clip_bounding_volume(subsampled_cloud, slab_cloud, clipped_cloud);
 
                 timestamp = omp_get_wtime() - start_timestamp;
@@ -948,8 +961,10 @@ int main(int argc, char** argv) {
                 color_filtered_indices = pcl::PointIndices::Ptr(new pcl::PointIndices);
                 color_filtered_cloud = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
 
-                color_filtering(cloud_rgbnormalized, color_quantized_cloud, config_num_cluster_first, *color_filtered_indices, average_deck_color, 2);
-                pcl::copyPointCloud(*clipped_cloud, *color_filtered_indices, *color_filtered_cloud);
+                pcl::PointIndices filtered_clip_indices;
+                color_filtering(cloud_rgbnormalized, clipped_indices, color_quantized_cloud, config_num_cluster, filtered_clip_indices, color_filtered_indices, average_deck_color, 2);
+                pcl::copyPointCloud(*clipped_cloud, filtered_clip_indices, *color_filtered_cloud);
+                filtered_clip_indices.indices.clear();
 
                 timestamp = omp_get_wtime() - start_timestamp;
                 printf("MAIN:: Color filtering took %f seconds\n", timestamp);
@@ -964,7 +979,8 @@ int main(int argc, char** argv) {
                 std::cout << "MAIN:: Outlier filtering."<<std::endl;
                 start_timestamp = omp_get_wtime();
                 pcl::StatisticalOutlierRemoval<pcl::PointXYZRGBNormal> sor(true);
-                sor.setInputCloud(color_filtered_cloud);
+                sor.setInputCloud(input_cloud);
+                sor.setIndices(color_filtered_indices);
                 outlier_indices = pcl::PointIndices::Ptr(new pcl::PointIndices);
                 sor.setMeanK(config_point_neightbourhood);
                 sor.setStddevMulThresh(config_std_deviation);
@@ -975,7 +991,7 @@ int main(int argc, char** argv) {
                 time_measurements.push_back(timestamp);
                 
                 filtered_cloud = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-                pcl::copyPointCloud(*color_filtered_cloud, *outlier_indices, *filtered_cloud);
+                pcl::copyPointCloud(*input_cloud, *outlier_indices, *filtered_cloud);
                 viewer->visualize_pointcloud(filtered_cloud, "filtered_cloud", 7);
 
                 //============== SUBSAMPLE CLIP VOLUME ===========
@@ -993,6 +1009,7 @@ int main(int argc, char** argv) {
                 int splits = 150;
                 float splitting_width = bBox.dim_x / splits;
                 splitted_bounds.reserve(splits);
+                classification_boxes.reserve(splits);
                 for (int i = 0; i < splits; i++) {
                     pcl::CropBox<pcl::PointXYZRGBNormal> crop_box;
                     float x = bBox.minPoint.x + i * splitting_width;
@@ -1000,7 +1017,8 @@ int main(int argc, char** argv) {
                     BoundingBox bb{pcl::PointXYZRGBNormal(x, bBox.minPoint.y, bBox.minPoint.z, 255,255,0,0.0,0.0,0.0), pcl::PointXYZRGBNormal(x + splitting_width, bBox.maxPoint.y, bBox.maxPoint.z, 255, 255, 0, 0.0, 0.0, 0.0), color[0], color[1], color[2] };
                     crop_box.setMin(bb.minPoint.getVector4fMap());
                     crop_box.setMax(bb.maxPoint.getVector4fMap());
-                    crop_box.setInputCloud(filtered_cloud);
+                    crop_box.setInputCloud(input_cloud);
+                    crop_box.setIndices(outlier_indices);
                     pcl::PointIndices::Ptr pi = pcl::PointIndices::Ptr(new pcl::PointIndices);
                     crop_box.filter(pi->indices);
                     part_indices.push_back(pi);
@@ -1033,7 +1051,7 @@ int main(int argc, char** argv) {
 
                 //create fitting bounding boxes
                 pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_part = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-                pcl::copyPointCloud(*filtered_cloud, *part_indices[i], *cloud_part);
+                pcl::copyPointCloud(*input_cloud, *part_indices[i], *cloud_part);
                 BoundingBox box = create_boundingbox(cloud_part, 0.0, 0.0, 1.0);
                 float new_max_z = box.maxPoint.z;
                 float new_min_z = box.minPoint.z;
@@ -1058,7 +1076,7 @@ int main(int argc, char** argv) {
                     Eigen::Vector4f middle_vec = box.minPoint.getVector4fMap();
                     middle_vec[2] = middle_vec[2] + (box.dim_z / 2);
                     pcl::CropBox<pcl::PointXYZRGBNormal> crop_box(true);
-                    crop_box.setInputCloud(filtered_cloud);
+                    crop_box.setInputCloud(input_cloud);
                     crop_box.setIndices(part_indices[i]);
                     crop_box.setMin(middle_vec);
                     crop_box.setMax(box.maxPoint.getVector4fMap());
@@ -1066,7 +1084,7 @@ int main(int argc, char** argv) {
                     crop_box.getRemovedIndices(lower_ind);
 
                     //classify part
-                    bool classified_slab = classify_and_correct(filtered_cloud, upper_ind, lower_ind, output_ind, box.dim_z/2);
+                    bool classified_slab = classify_and_correct(input_cloud, upper_ind, lower_ind, output_ind, box.dim_z/2);
                     *part_indices[i] = output_ind;
 
                     //color of box corresponds to label
@@ -1101,29 +1119,38 @@ int main(int argc, char** argv) {
                 
                 for (size_t i = 0; i != part_indices.size(); i++) {
                     pcl::PointCloud<pcl::PointXYZRGBNormal> cl;
-                    pcl::copyPointCloud(*filtered_cloud, *part_indices[i], cl);
+                    pcl::copyPointCloud(*input_cloud, *part_indices[i], cl);
                     *bridge_cloud += cl;
-                    bridge_indices->indices.insert(bridge_indices->indices.end(), *part_indices[i]->indices.begin(), *part_indices[i]->indices.begin());
+                    if (!part_indices[i]->indices.empty()) {
+                        bridge_indices->indices.insert(bridge_indices->indices.end(), part_indices[i]->indices.begin(), part_indices[i]->indices.end());
+                    }
+                    part_indices[i]->indices.clear();
 
                     BoundingBox bb = create_boundingbox(cl, 1.0, 0.0, 0.0);
                     if (labels[i]) {
                         viewer->add_bounding_box(bb, 1.0, 0.0, 0.0, viewer->get_viewport(7));
+                        classification_boxes.push_back(bb);
                     }
                     else {
+                        bb.r = 0.0;
+                        bb.g = 1.0;
+                        classification_boxes.push_back(bb);
                         viewer->add_bounding_box(bb, 0.0, 1.0, 0.0, viewer->get_viewport(7));
                     }
                 }
+                part_indices.clear();
 
                 timestamp = omp_get_wtime() - start_timestamp;
                 printf("\nMAIN:: Reassembling took %f seconds\n", timestamp);
                 time_measurements.push_back(timestamp);
 
-                std::sort(bridge_indices->indices.begin(), bridge_indices->indices.end(), [](int &a, int &b) {
+                /*std::sort(bridge_indices->indices.begin(), bridge_indices->indices.end(), [](int& a, int& b) {
                     return a < b;
-                });
+                });*/
                 viewer->visualize_pointcloud(bridge_cloud, "bridge_cloud", 8);
 
                 //================ END ===============
+                std::cout << "\nMAIN:: ========= END =========";
                 timestamp = omp_get_wtime() - complete_start_timestamp;
                 printf("\nMAIN:: Pipline took %f seconds\n", timestamp);
                 time_measurements.push_back(timestamp);
@@ -1132,11 +1159,15 @@ int main(int argc, char** argv) {
                 pcl::copyPointCloud(*input_cloud, *bridge_indices, *temp_cloud);
                 detail_viewer->visualize_pointcloud(temp_cloud, "temp");
                 
+                //write result persistent
+                std::cout << "Write output persistent."<<std::endl;
+                pcl::io::savePCDFile("output_bridge.pcd", *bridge_cloud, true);
+                std::cout << "DONE." << std::endl;
 
                 if (evaluation_mode) {
                     write_evaluation_data(time_measurements);
+                    close_flag = true;
                 }
-                std::cout << "DONE." << std::endl;
             }
 
             //std::cout << "\nMAIN:: ========= RESAMPLE CLOUD =========" << std::endl;
@@ -1296,9 +1327,12 @@ int main(int argc, char** argv) {
         }
     }
 
-    /*delete viewer;
-    viewer = nullptr;
-    delete detail_viewer;
-    detail_viewer = nullptr;
-    return 0;*/
+    if (close_flag) {        
+        delete viewer;
+        viewer = nullptr;
+        delete detail_viewer;
+        detail_viewer = nullptr;
+        close_flag = true;
+        return 0;
+    }
 }
