@@ -352,8 +352,12 @@ void clip_bounding_volume(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_cloud,
 }
 
 //filter by color with kmeans
-void color_filtering(pcl::PointCloud <pcl::PointXYZRGBNormal>::Ptr const in_cloud, pcl::PointIndices::Ptr original_indices, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr colored_cloud, unsigned int num_cluster, pcl::PointIndices &out_clipped_indices, pcl::PointIndices::Ptr out_original_indices, Eigen::Vector3f reference_color, int number_output_clusters = 2) {
+bool color_filtering(pcl::PointCloud <pcl::PointXYZRGBNormal>::Ptr const in_cloud, pcl::PointIndices::Ptr original_indices, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr colored_cloud, unsigned int num_cluster, pcl::PointIndices &out_clipped_indices, pcl::PointIndices::Ptr out_original_indices, Eigen::Vector3f reference_color, int number_output_clusters = 2) {
 //void color_filtering(pcl::PointCloud <pcl::PointXYZRGBNormal>::Ptr const in_cloud, unsigned int num_cluster, pcl::PointIndices &out_indices) {
+
+    if (original_indices->indices.size() == 0 || in_cloud->points.size() == 0) {
+        return false;
+    }
 
     pcl::Kmeans means(static_cast<int>(in_cloud->points.size()), 3);
     means.setClusterSize(num_cluster);
@@ -408,8 +412,13 @@ void color_filtering(pcl::PointCloud <pcl::PointXYZRGBNormal>::Ptr const in_clou
         return distance_idx1 < distance_idx1;
     });
 
+    int output_number = number_output_clusters;
+    while (output_number > centroids.size()) {
+        output_number--;
+    }
+
     //output specified number of clusters from front
-    for (int i = 0; i < number_output_clusters; i++) {
+    for (int i = 0; i < output_number; i++) {
         out_clipped_indices.indices.insert(out_clipped_indices.indices.end(), cluster_indices[centroid_indices[i]].indices.begin(), cluster_indices[centroid_indices[i]].indices.end());
         out_original_indices->indices.insert(out_original_indices->indices.end(), out_i[centroid_indices[i]].indices.begin(), out_i[centroid_indices[i]].indices.end());
     }
@@ -430,6 +439,7 @@ void color_filtering(pcl::PointCloud <pcl::PointXYZRGBNormal>::Ptr const in_clou
         for (auto& p : cloud.points) p.rgb = rgb;
         *colored_cloud += cloud;
     }
+    return true;
 }
 
 //semantic decisioning if deck or not
@@ -579,10 +589,12 @@ void write_evaluation_data(std::vector<double>& time_measurements) {
     out_slab_indices.open(directory + "/slab_indices.txt", ios::out | ios::trunc);
     if (out_slab_indices.is_open()) {
         out_slab_indices << slab_indices->indices.size() <<";"<< subsampled_cloud->points.size() << std::endl;
-        for (auto i = slab_indices->indices.begin(); i < slab_indices->indices.end()-1; i++) {
-            out_slab_indices << *i << "; ";
+        if (slab_indices->indices.size() > 0) {
+            for (auto i = slab_indices->indices.begin(); i < slab_indices->indices.end() - 1; i++) {
+                out_slab_indices << *i << "; ";
+            }
+            out_slab_indices << *(slab_indices->indices.end() - 1);
         }
-        out_slab_indices << *(slab_indices->indices.end() - 1);
         out_slab_indices.close();
     }
     else {
@@ -593,10 +605,12 @@ void write_evaluation_data(std::vector<double>& time_measurements) {
     out_bridge_indices.open(directory + "/bridge_indices.txt", ios::out | ios::trunc);
     if (out_bridge_indices.is_open()) {
         out_bridge_indices << bridge_indices->indices.size() << ";" << subsampled_cloud->points.size() << std::endl;
-        for (auto i = bridge_indices->indices.begin(); i < bridge_indices->indices.end()-1; i++) {
-            out_bridge_indices << *i << "; ";
+        if (bridge_indices->indices.size() > 0) {
+            for (auto i = bridge_indices->indices.begin(); i < bridge_indices->indices.end() - 1; i++) {
+                out_bridge_indices << *i << "; ";
+            }
+            out_bridge_indices << *(bridge_indices->indices.end() - 1);
         }
-        out_bridge_indices << *(bridge_indices->indices.end() - 1);
         out_bridge_indices.close();
     }
     else {
