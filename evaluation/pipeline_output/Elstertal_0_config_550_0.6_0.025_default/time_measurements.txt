@@ -1,0 +1,11 @@
+Pointcloud subsampling: 0.0357369Pointcloud alignment: 0.682895
+Normal estimation: 6.67916
+Slab extraction: 195.479
+Realignment: 0.204286
+Clipping: 3.65574
+Color filtering: 3.82342
+Outlier removal: 27.6813
+Pointcloud splitting: 3.10076
+Classification and semantic removal: 0.656276
+Reassembling: 0.276257
+Whole pipeline: 242.925

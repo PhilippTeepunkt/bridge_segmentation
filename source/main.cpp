@@ -55,6 +55,7 @@ float config_smoothness = 0.81;
 float config_curvature = 0.05; 
 int config_point_neightbourhood = 300;//450;
 float config_std_deviation = 0.7;
+int reference_color_size = 10000;
 //int config_num_cluster = 3;
 int config_num_cluster = 5;
 //float config_residuals_threshold = 0.36; 
@@ -80,6 +81,7 @@ std::vector<pcl::PointIndices::Ptr> part_indices; //clipping parts
 std::vector<BoundingBox> splitted_bounds;
 std::vector<bool> labels;
 std::vector<BoundingBox> classification_boxes;
+BoundingBox last_deck_box;
 
 //final output cloud
 pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr bridge_cloud;
@@ -409,7 +411,7 @@ bool color_filtering(pcl::PointCloud <pcl::PointXYZRGBNormal>::Ptr const in_clou
         std::vector<float> ref{ reference_color[0],reference_color[1],reference_color[2] };
         float distance_idx1 = means.distance(centroids[idx1], ref);
         float distance_idx2 = means.distance(centroids[idx2], ref);
-        return distance_idx1 < distance_idx1;
+        return distance_idx1 < distance_idx2;
     });
 
     int output_number = number_output_clusters;
@@ -446,12 +448,10 @@ bool color_filtering(pcl::PointCloud <pcl::PointXYZRGBNormal>::Ptr const in_clou
 bool classify_and_correct(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_cloud, pcl::PointIndices const& i_upper, pcl::PointIndices const& i_lower, pcl::PointIndices& result, float full_height) {
     
     //get boundings for both parts
-    BoundingBox upperBox;
     Eigen::Vector4f min_u, max_u;
     pcl::getMinMax3D(*in_cloud, i_upper, min_u, max_u);
     float dimz_u = std::abs(max_u[2] - min_u[2]);
 
-    BoundingBox lowerBox;
     Eigen::Vector4f min_l, max_l;
     pcl::getMinMax3D(*in_cloud, i_lower, min_l, max_l);
     float dimz_l = std::abs(max_l[2] - min_l[2]);
@@ -543,7 +543,10 @@ void keyboardEventOccurred(const pcl::visualization::KeyboardEvent& event, void*
     else if (event.getKeySym() == "F8") {
         detail_viewer->remove_pointcloud(detail_viewer->get_current_pointcloud(0).first);
         detail_viewer->visualize_pointcloud(viewer->get_current_pointcloud(7).second, viewer->get_current_pointcloud(7).first, 0);
-
+    }
+    else if (event.getKeySym() == "F9") {
+        detail_viewer->removePointCloud(detail_viewer->get_current_pointcloud(0).first);
+        detail_viewer->visualize_pointcloud(viewer->get_current_pointcloud(8).second, viewer->get_current_pointcloud(8).first, 0);
     }
 }
 
@@ -710,12 +713,14 @@ int main(int argc, char** argv) {
     //check for camera file and config file
     //create viewer
     viewer = new Viewer("Split overview viewer");
+    detail_viewer = new Viewer("Detail viewer");
     bool config_file_exist = false;
     if (argc > 4)
     {
         file_name = argv[arg];
         arg++;
         viewer->setup_viewer(file_name, 9);
+        detail_viewer->setup_viewer(file_name, 1);
         config_file_exist = true;
     }
     else if (argc > 3) 
@@ -724,6 +729,7 @@ int main(int argc, char** argv) {
         std::string format = file_name.substr(file_name.find_last_of(".") + 1);
         if (format == "cam") {
             viewer->setup_viewer(file_name, 9);
+            detail_viewer->setup_viewer(file_name, 1);
             if (!evaluation_mode) {
                 config_file_exist = true;
                 arg++;
@@ -732,6 +738,7 @@ int main(int argc, char** argv) {
         else {
             config_file_exist = true;
             viewer->setup_viewer(9);
+            detail_viewer->setup_viewer(1);
         }
     }
     else if (argc > 2 && !evaluation_mode) {
@@ -739,14 +746,18 @@ int main(int argc, char** argv) {
         std::string format = file_name.substr(file_name.find_last_of(".") + 1);
         if (format == "cam") {
             viewer->setup_viewer(file_name, 9);
+            detail_viewer->setup_viewer(file_name,1);
         }
         else {
             config_file_exist = true;
+            //setup detail viewer
             viewer->setup_viewer(9);
+            detail_viewer->setup_viewer(1);
         }
     }
     else {
         viewer->setup_viewer(9);
+        detail_viewer->setup_viewer(1);
     }
 
     //loads config file if exists
@@ -775,10 +786,6 @@ int main(int argc, char** argv) {
     }
 
     viewer->registerKeyboardCallback(keyboardEventOccurred, (void*)viewer);
-
-    //setup detail viewer
-    detail_viewer = new Viewer("Detail viewer");
-    detail_viewer->setup_viewer(1);
     detail_viewer->registerKeyboardCallback(keyboardEventOccurred, (void*)detail_viewer);
 
     /*pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr temp_cloud = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
@@ -945,7 +952,7 @@ int main(int argc, char** argv) {
                 std::vector<float> distances;
                 pcl::search::Search<pcl::PointXYZRGBNormal>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZRGBNormal>);
                 tree->setInputCloud(cloud_rgbnormalized);
-                tree->nearestKSearchT(pcl::PointXYZRGBNormal(0.0,0.0,0.0,0,0,0), 12000, neighbourhood.indices, distances);
+                tree->nearestKSearchT(pcl::PointXYZRGBNormal(0.0,0.0,0.0,0,0,0), reference_color_size, neighbourhood.indices, distances);
                 distances.clear();
 
                 pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr neighbourhood_cloud(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
@@ -1020,7 +1027,7 @@ int main(int argc, char** argv) {
                 start_timestamp = omp_get_wtime();
 
                 BoundingBox bBox = create_boundingbox(filtered_cloud, 1.0, 0.0, 0.0);
-                int splits = 150;
+                int splits = 250;
                 float splitting_width = bBox.dim_x / splits;
                 splitted_bounds.reserve(splits);
                 classification_boxes.reserve(splits);
@@ -1036,7 +1043,7 @@ int main(int argc, char** argv) {
                     pcl::PointIndices::Ptr pi = pcl::PointIndices::Ptr(new pcl::PointIndices);
                     crop_box.filter(pi->indices);
                     part_indices.push_back(pi);
-                    splitted_bounds.push_back(bb);
+                    splitted_bounds.push_back(bb);  
                 }
                 split_flag = true;
                 #pragma omp flush(split_flag)
@@ -1067,6 +1074,9 @@ int main(int argc, char** argv) {
                 pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_part = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
                 pcl::copyPointCloud(*input_cloud, *part_indices[i], *cloud_part);
                 BoundingBox box = create_boundingbox(cloud_part, 0.0, 0.0, 1.0);
+                /*if (i == 5) {
+                    detail_viewer->add_bounding_box(splitted_bounds[i], 0.0, 0.0, 0.0);
+                }*/
                 float new_max_z = box.maxPoint.z;
                 float new_min_z = box.minPoint.z;
                 float new_dim_z = box.dim_z;
@@ -1077,16 +1087,19 @@ int main(int argc, char** argv) {
                 box.minPoint.z = new_min_z;
                 box.dim_z = new_dim_z;
 
+                classification_boxes[i] = box;
+
+                pcl::PointIndices output_ind;
+                pcl::PointIndices upper_ind;
+                pcl::PointIndices lower_ind;
+
                 //check if the box is already cropping a slab part
-                if (new_dim_z < splitted_bounds[i].dim_z / 4) {
+                if (new_dim_z < splitted_bounds[i].dim_z / 6) {
                     labels[i] = true;
                 }
                 else {
 
                     //crop upper and lower part
-                    pcl::PointIndices output_ind;
-                    pcl::PointIndices upper_ind;
-                    pcl::PointIndices lower_ind;
                     Eigen::Vector4f middle_vec = box.minPoint.getVector4fMap();
                     middle_vec[2] = middle_vec[2] + (box.dim_z / 2);
                     pcl::CropBox<pcl::PointXYZRGBNormal> crop_box(true);
@@ -1104,18 +1117,55 @@ int main(int argc, char** argv) {
                     //color of box corresponds to label
                     if (classified_slab) {
                         labels[i] = true;
+                        classification_boxes[i].r = 1.0;
+                        classification_boxes[i].g = 0.0; 
+                        classification_boxes[i].b = 0.0;
+
                     }
                     else {
                         labels[i] = false;
+                        classification_boxes[i].r = 0.0;
+                        classification_boxes[i].g = 1.0;
+                        classification_boxes[i].b = 0.0;
                     }
+
+                    //resampling
+                    /*
+                    pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_on_conhull = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+                    std::vector<pcl::Vertices> concave_indices;
+                    pcl::ConcaveHull<pcl::PointXYZRGBNormal> concave_bridge_hull;
+                    concave_bridge_hull.setInputCloud(input_cloud);
+                    concave_bridge_hull.setIndices(part_indices[i]);
+                    concave_bridge_hull.setAlpha(0.6);
+                    concave_bridge_hull.setDimension(3);
+                    concave_bridge_hull.reconstruct(*cloud_on_conhull, concave_indices);
+
+                    pcl::CropHull<pcl::PointXYZRGBNormal> crop_filter;
+                    crop_filter.setInputCloud(input_cloud);
+                    crop_filter.setHullCloud(cloud_on_conhull);
+                    crop_filter.setHullIndices(concave_indices);
+                    crop_filter.setDim(3);
+                    crop_filter.filter(output_ind.indices);
+                    *part_indices[i] = output_ind;
+                    */
+
                 }
-                /*if (i == 95) {
-                    detail_viewer->visualize_pointcloud(cloud_part, "cloud_part95");
+                /*if (i == 5) {
+                    detail_viewer->visualize_pointcloud(cloud_part, "cloud_part85");
+                    detail_viewer->add_bounding_box(box, 0.0, 0.0, 1.0);
+                    pcl::PointCloud<pcl::PointXYZRGBNormal> p1;
+                    pcl::PointCloud<pcl::PointXYZRGBNormal> p2;
+                    pcl::copyPointCloud(*input_cloud, upper_ind,p1);
+                    pcl::copyPointCloud(*input_cloud, lower_ind,p2);
+                    BoundingBox bb1 = create_boundingbox(p1, 1.0, 0.0, 0.0);
+                    BoundingBox bb2 = create_boundingbox(p2, 1.0, 0.0, 0.0);
+                    detail_viewer->add_bounding_box(bb1, 1.0, 0.0, 0.0);
+                    detail_viewer->add_bounding_box(bb2, 1.0, 0.0, 0.0);
                 }
-                else {
+                else {*/
                     cloud_part->clear();
                     cloud_part = nullptr;
-                }*/
+                //}
             }
 
             #pragma omp single
@@ -1144,12 +1194,23 @@ int main(int argc, char** argv) {
                     if (labels[i]) {
                         viewer->add_bounding_box(bb, 1.0, 0.0, 0.0, viewer->get_viewport(7));
                         classification_boxes.push_back(bb);
+                        last_deck_box = bb;
                     }
                     else {
                         bb.r = 0.0;
                         bb.g = 1.0;
                         classification_boxes.push_back(bb);
+                        bb.dim_z -= last_deck_box.dim_z;
+                        last_deck_box.maxPoint = bb.maxPoint;
+                        last_deck_box.minPoint = bb.minPoint;
+                        last_deck_box.minPoint.z += bb.dim_z;
+                        last_deck_box.dim_x = last_deck_box.maxPoint.x - last_deck_box.minPoint.x;
+                        last_deck_box.dim_y = last_deck_box.maxPoint.y - last_deck_box.minPoint.y;
+                        last_deck_box.dim_z = last_deck_box.maxPoint.z - last_deck_box.minPoint.z;
+                        bb.maxPoint.z -= last_deck_box.dim_z;
+                        classification_boxes.push_back(last_deck_box);
                         viewer->add_bounding_box(bb, 0.0, 1.0, 0.0, viewer->get_viewport(7));
+                        viewer->add_bounding_box(last_deck_box, 1.0, 0.0, 0.0, viewer->get_viewport(7));
                     }
                 }
                 part_indices.clear();
@@ -1158,10 +1219,14 @@ int main(int argc, char** argv) {
                 printf("\nMAIN:: Reassembling took %f seconds\n", timestamp);
                 time_measurements.push_back(timestamp);
 
-                /*std::sort(bridge_indices->indices.begin(), bridge_indices->indices.end(), [](int& a, int& b) {
+                std::sort(bridge_indices->indices.begin(), bridge_indices->indices.end(), [](int& a, int& b) {
                     return a < b;
-                });*/
+                });
                 viewer->visualize_pointcloud(bridge_cloud, "bridge_cloud", 8);
+                detail_viewer->visualize_pointcloud(bridge_cloud, "bridge_cloud");
+                /*for (auto& b : classification_boxes) {
+                    detail_viewer->add_bounding_box(b, b.r, b.g, b.b);
+                }*/
 
                 //================ END ===============
                 std::cout << "\nMAIN:: ========= END =========";
@@ -1169,9 +1234,9 @@ int main(int argc, char** argv) {
                 printf("\nMAIN:: Pipline took %f seconds\n", timestamp);
                 time_measurements.push_back(timestamp);
 
-                pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr temp_cloud = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+                /*pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr temp_cloud = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
                 pcl::copyPointCloud(*input_cloud, *bridge_indices, *temp_cloud);
-                detail_viewer->visualize_pointcloud(temp_cloud, "temp");
+                detail_viewer->visualize_pointcloud(temp_cloud, "temp");*/
                 
                 //write result persistent
                 std::cout << "Write output persistent."<<std::endl;
