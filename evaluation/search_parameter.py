@@ -12,15 +12,15 @@ import time
 sampling_densitys = 2000000
 
 #slab extraction
-neighbouhood_sizes = [550]
-smoothness_thresholds = [0.60]
-curvature_thresholds = [0.025]
+neighbouhood_sizes = [500]
+smoothness_thresholds = [1.1]
+curvature_thresholds = [0.04]
 #residuals_thresholds = [0.001]
 
 #filtering parameters
 num_cluster = [5] #[2, 3, 4, 5, 6]
-point_neighbourhood = [300]#[200, 300, 400, 500]
-std_deviation = [0.7] #[0.8, 0.7, 0.6, 0.5]
+point_neighbourhood = [450]#[200, 300, 400, 500]
+std_deviation = [0.5] #[0.8, 0.7, 0.6, 0.5]
 
 #bridge_files = []
 config_files = []

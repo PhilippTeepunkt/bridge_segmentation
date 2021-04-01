@@ -48,14 +48,14 @@ pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr clustered_cloud;
 pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr slab_cloud;
 pcl::PointIndices::Ptr slab_indices;
 std::string config = "DEFAULT";
-float config_sampling_radius = 0.027;
+float config_sampling_radius = 0.15;
+//float config_sampling_radius = 0.027;
 int config_sampling_density = 2000000;
 int config_num_neightbours = 550;
-float config_smoothness = 0.81;
-float config_curvature = 0.05; 
-int config_point_neightbourhood = 300;//450;
-float config_std_deviation = 0.7;
-int reference_color_size = 10000;
+float config_smoothness = 1.1;
+float config_curvature = 0.04; 
+int config_point_neightbourhood = 450;
+float config_std_deviation = 0.5;
 //int config_num_cluster = 3;
 int config_num_cluster = 5;
 //float config_residuals_threshold = 0.36; 
@@ -289,12 +289,11 @@ pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr extract_slab(pcl::PointCloud<pcl::P
         }
     }
 
-    /*
     //visualize knearest neighbourhood 
-    pcl::PointIndices neighbourhood;
+   /*pcl::PointIndices neighbourhood;
     int query_point = slab_indices->indices[5230];
     std::vector<float> distances;
-    tree->nearestKSearch(query_point, 500 , neighbourhood.indices, distances);
+    tree->nearestKSearch(query_point, 2000 , neighbourhood.indices, distances);
     pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr neighbourhood_cloud(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
     pcl::copyPointCloud(*in_cloud, neighbourhood, *neighbourhood_cloud);
     BoundingBox neighbourhood_box = create_boundingbox(neighbourhood_cloud, 1.0, 0.0, 0.0);
@@ -328,7 +327,7 @@ void clip_bounding_volume(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_cloud,
     pcl::ConcaveHull<pcl::PointXYZ> hull;
     //pcl::ConvexHull<pcl::PointXYZ> hull;
     hull.setInputCloud(slab_cloud_spatial);
-    hull.setAlpha(20.0);
+    hull.setAlpha(15.0);
     hull.setDimension(2);
     hull.reconstruct(*cloud_on_hull, hull_indices);
 
@@ -445,16 +444,34 @@ bool color_filtering(pcl::PointCloud <pcl::PointXYZRGBNormal>::Ptr const in_clou
 }
 
 //semantic decisioning if deck or not
-bool classify_and_correct(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_cloud, pcl::PointIndices const& i_upper, pcl::PointIndices const& i_lower, pcl::PointIndices& result, float full_height) {
+bool classify_and_correct(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_cloud, pcl::PointIndices const& i_upper, pcl::PointIndices& i_lower, pcl::PointIndices& result, float full_height) {
     
     //get boundings for both parts
     Eigen::Vector4f min_u, max_u;
     pcl::getMinMax3D(*in_cloud, i_upper, min_u, max_u);
     float dimz_u = std::abs(max_u[2] - min_u[2]);
+    float dimx_u = std::abs(max_u[0] - min_u[0]);
 
     Eigen::Vector4f min_l, max_l;
     pcl::getMinMax3D(*in_cloud, i_lower, min_l, max_l);
     float dimz_l = std::abs(max_l[2] - min_l[2]);
+    float dimx_l = std::abs(max_l[0] - min_l[0]);
+
+    //optimization: cut noise next to the bridge by assume that the pier is at most as wide as teh deck
+    if (dimx_l > dimx_u) {
+        Eigen::Vector4f min, max;
+        min = min_l;
+        max = max_l;
+        min[0] = min_u[0];
+        max[0] = max_u[0];
+        pcl::CropBox<pcl::PointXYZRGBNormal> crop_box(true);
+        crop_box.setInputCloud(in_cloud);
+        pcl::PointIndices::Ptr indices = pcl::PointIndices::Ptr(new pcl::PointIndices(i_lower));
+        crop_box.setIndices(indices);
+        crop_box.setMin(min);
+        crop_box.setMax(max);
+        crop_box.filter(i_lower.indices);
+    }
 
     //determine if the subbox uses full height
     //upper low -> slab, below noise
@@ -886,8 +903,8 @@ int main(int argc, char** argv) {
                 //visualize clustered cloud and slab
                 viewer->visualize_pointcloud(clustered_cloud, "clustered_cloud", 2);
                 viewer->visualize_pointcloud(slab_cloud, "slab_cloud", 1);
-                BoundingBox bbox = viewer->assign_oriented_bounding_box("slab_cloud", 1.0, 0.0, 0.0);
-                viewer->add_oriented_bounding_box(bbox, 0.0, 0.0, 1.0, viewer->get_viewport(0));
+                BoundingBox slab_box = viewer->assign_oriented_bounding_box("slab_cloud", 1.0, 0.0, 0.0);
+                viewer->add_oriented_bounding_box(slab_box, 0.0, 0.0, 1.0, viewer->get_viewport(0));
 
                 //temp add eigen vec vis
                 /*Eigen::Vector3f p1;
@@ -929,7 +946,7 @@ int main(int argc, char** argv) {
                 start_timestamp = omp_get_wtime();
                 clipped_cloud = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
                 clipped_indices = pcl::PointIndices::Ptr(new pcl::PointIndices);
-                clip_bounding_volume(subsampled_cloud, slab_cloud, clipped_cloud, clipped_indices);
+                clip_bounding_volume(input_cloud, slab_cloud, clipped_cloud, clipped_indices);
                 //clip_bounding_volume(subsampled_cloud, slab_cloud, clipped_cloud);
 
                 timestamp = omp_get_wtime() - start_timestamp;
@@ -952,7 +969,7 @@ int main(int argc, char** argv) {
                 std::vector<float> distances;
                 pcl::search::Search<pcl::PointXYZRGBNormal>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZRGBNormal>);
                 tree->setInputCloud(cloud_rgbnormalized);
-                tree->nearestKSearchT(pcl::PointXYZRGBNormal(0.0,0.0,0.0,0,0,0), reference_color_size, neighbourhood.indices, distances);
+                tree->nearestKSearchT(pcl::PointXYZRGBNormal(0.0,0.0,1.5,0,0,0), slab_indices->indices.size()/50, neighbourhood.indices, distances);
                 distances.clear();
 
                 pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr neighbourhood_cloud(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
