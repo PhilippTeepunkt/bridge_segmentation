@@ -18,6 +18,7 @@
 #include <pcl/filters/statistical_outlier_removal.h>
 #include <pcl/ml/kmeans.h>
 #include <pcl/search/search.h>
+#include <pcl/segmentation/sac_segmentation.h>
 
 #include "viewer.h"
 #include "utils.h"
@@ -107,10 +108,9 @@ double start_timestamp = 0;
 double complete_start_timestamp = 0;
 std::vector<double> time_measurements;
 
-
+/*
 //subsamples input to 2mio points
-
-/*pcl::PointIndices subsample_pointcloud(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_cloud, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr out_cloud, pcl::PointIndices::Ptr removed_indices = nullptr) {
+pcl::PointIndices subsample_pointcloud(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_cloud, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr out_cloud, pcl::PointIndices::Ptr removed_indices = nullptr) {
 
     pcl::RandomSample<pcl::PointXYZRGBNormal> rand_sampling;
     rand_sampling.setInputCloud(in_cloud);
@@ -124,8 +124,8 @@ std::vector<double> time_measurements;
     pcl::copyPointCloud(*in_cloud, indices, *out_cloud);
 
     return indices;
-}*/
-
+}
+*/
 //subsamples input by distance
 pcl::PointIndices subsample_pointcloud(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr const in_cloud, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr out_cloud) {
 
@@ -248,6 +248,7 @@ pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr extract_slab(pcl::PointCloud<pcl::P
     reg.setNumberOfNeighbours(config_num_neightbours);
     reg.setInputCloud(cloud);
     reg.setInputNormals(estimated_normals);
+    //reg.setInputNormals(subsampled_normals);
     reg.setSmoothnessThreshold(config_smoothness / 180.0 * M_PI);
     reg.setCurvatureThreshold(config_curvature);
     //reg.setResidualTestFlag(true);
@@ -330,6 +331,18 @@ void clip_bounding_volume(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_cloud,
     hull.setAlpha(15.0);
     hull.setDimension(2);
     hull.reconstruct(*cloud_on_hull, hull_indices);
+
+    pcl::SACSegmentation<pcl::PointXYZ> sac;
+    pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
+    pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
+
+    sac.setInputCloud(cloud_on_hull);
+    sac.setMethodType(pcl::SAC_RANSAC);
+    sac.setModelType(pcl::SACMODEL_PLANE);
+    sac.setDistanceThreshold(15);                  //Distance need to be adjusted according to the obj
+    sac.setMaxIterations(100);
+    sac.setProbability(0.95);
+    sac.segment(*inliers, *coefficients);
 
     //extract pointcloud
     if (hull.getDimension() == 2) {
@@ -850,6 +863,8 @@ int main(int argc, char** argv) {
                     //*subsampled_indices = subsample_pointcloud(input_cloud, subsampled_cloud);
                     //pcl::copyPointCloud(*input_cloud, *subsampled_indices ,*subsampled_cloud);
                     pcl::copyPointCloud(*input_cloud, *subsampled_cloud);
+                    pcl::copyPointCloud(*input_cloud, *subsampled_normals);
+                    //pcl::copyPointCloud(*subsampled_cloud, *subsampled_normals);
                 }
                 std::cout << "MAIN:: subsampled_cloud-> " << subsampled_cloud->size() << " size." << std::endl;
                 timestamp = omp_get_wtime() - start_timestamp;
@@ -946,8 +961,8 @@ int main(int argc, char** argv) {
                 start_timestamp = omp_get_wtime();
                 clipped_cloud = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
                 clipped_indices = pcl::PointIndices::Ptr(new pcl::PointIndices);
-                clip_bounding_volume(input_cloud, slab_cloud, clipped_cloud, clipped_indices);
-                //clip_bounding_volume(subsampled_cloud, slab_cloud, clipped_cloud);
+                //clip_bounding_volume(input_cloud, slab_cloud, clipped_cloud, clipped_indices);
+                clip_bounding_volume(subsampled_cloud, slab_cloud, clipped_cloud, clipped_indices);
 
                 timestamp = omp_get_wtime() - start_timestamp;
                 printf("MAIN:: Cloud clipping took %f seconds\n", timestamp);
@@ -1017,7 +1032,7 @@ int main(int argc, char** argv) {
                 std::cout << "MAIN:: Outlier filtering."<<std::endl;
                 start_timestamp = omp_get_wtime();
                 pcl::StatisticalOutlierRemoval<pcl::PointXYZRGBNormal> sor(true);
-                sor.setInputCloud(input_cloud);
+                sor.setInputCloud(subsampled_cloud);
                 sor.setIndices(color_filtered_indices);
                 outlier_indices = pcl::PointIndices::Ptr(new pcl::PointIndices);
                 sor.setMeanK(config_point_neightbourhood);
@@ -1029,7 +1044,7 @@ int main(int argc, char** argv) {
                 time_measurements.push_back(timestamp);
                 
                 filtered_cloud = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-                pcl::copyPointCloud(*input_cloud, *outlier_indices, *filtered_cloud);
+                pcl::copyPointCloud(*subsampled_cloud, *outlier_indices, *filtered_cloud);
                 viewer->visualize_pointcloud(filtered_cloud, "filtered_cloud", 7);
 
                 //============== SUBSAMPLE CLIP VOLUME ===========
@@ -1055,7 +1070,7 @@ int main(int argc, char** argv) {
                     BoundingBox bb{pcl::PointXYZRGBNormal(x, bBox.minPoint.y, bBox.minPoint.z, 255,255,0,0.0,0.0,0.0), pcl::PointXYZRGBNormal(x + splitting_width, bBox.maxPoint.y, bBox.maxPoint.z, 255, 255, 0, 0.0, 0.0, 0.0), color[0], color[1], color[2] };
                     crop_box.setMin(bb.minPoint.getVector4fMap());
                     crop_box.setMax(bb.maxPoint.getVector4fMap());
-                    crop_box.setInputCloud(input_cloud);
+                    crop_box.setInputCloud(subsampled_cloud);
                     crop_box.setIndices(outlier_indices);
                     pcl::PointIndices::Ptr pi = pcl::PointIndices::Ptr(new pcl::PointIndices);
                     crop_box.filter(pi->indices);
@@ -1089,7 +1104,7 @@ int main(int argc, char** argv) {
 
                 //create fitting bounding boxes
                 pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_part = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-                pcl::copyPointCloud(*input_cloud, *part_indices[i], *cloud_part);
+                pcl::copyPointCloud(*subsampled_cloud, *part_indices[i], *cloud_part);
                 BoundingBox box = create_boundingbox(cloud_part, 0.0, 0.0, 1.0);
                 /*if (i == 5) {
                     detail_viewer->add_bounding_box(splitted_bounds[i], 0.0, 0.0, 0.0);
@@ -1120,7 +1135,7 @@ int main(int argc, char** argv) {
                     Eigen::Vector4f middle_vec = box.minPoint.getVector4fMap();
                     middle_vec[2] = middle_vec[2] + (box.dim_z / 2);
                     pcl::CropBox<pcl::PointXYZRGBNormal> crop_box(true);
-                    crop_box.setInputCloud(input_cloud);
+                    crop_box.setInputCloud(subsampled_cloud);
                     crop_box.setIndices(part_indices[i]);
                     crop_box.setMin(middle_vec);
                     crop_box.setMax(box.maxPoint.getVector4fMap());
@@ -1128,7 +1143,7 @@ int main(int argc, char** argv) {
                     crop_box.getRemovedIndices(lower_ind);
 
                     //classify part
-                    bool classified_slab = classify_and_correct(input_cloud, upper_ind, lower_ind, output_ind, box.dim_z/2);
+                    bool classified_slab = classify_and_correct(subsampled_cloud, upper_ind, lower_ind, output_ind, box.dim_z/2);
                     *part_indices[i] = output_ind;
 
                     //color of box corresponds to label
@@ -1146,25 +1161,8 @@ int main(int argc, char** argv) {
                         classification_boxes[i].b = 0.0;
                     }
 
-                    //resampling
-                    /*
                     pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_on_conhull = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
                     std::vector<pcl::Vertices> concave_indices;
-                    pcl::ConcaveHull<pcl::PointXYZRGBNormal> concave_bridge_hull;
-                    concave_bridge_hull.setInputCloud(input_cloud);
-                    concave_bridge_hull.setIndices(part_indices[i]);
-                    concave_bridge_hull.setAlpha(0.6);
-                    concave_bridge_hull.setDimension(3);
-                    concave_bridge_hull.reconstruct(*cloud_on_conhull, concave_indices);
-
-                    pcl::CropHull<pcl::PointXYZRGBNormal> crop_filter;
-                    crop_filter.setInputCloud(input_cloud);
-                    crop_filter.setHullCloud(cloud_on_conhull);
-                    crop_filter.setHullIndices(concave_indices);
-                    crop_filter.setDim(3);
-                    crop_filter.filter(output_ind.indices);
-                    *part_indices[i] = output_ind;
-                    */
 
                 }
                 /*if (i == 5) {
@@ -1200,7 +1198,7 @@ int main(int argc, char** argv) {
                 
                 for (size_t i = 0; i != part_indices.size(); i++) {
                     pcl::PointCloud<pcl::PointXYZRGBNormal> cl;
-                    pcl::copyPointCloud(*input_cloud, *part_indices[i], cl);
+                    pcl::copyPointCloud(*subsampled_cloud, *part_indices[i], cl);
                     *bridge_cloud += cl;
                     if (!part_indices[i]->indices.empty()) {
                         bridge_indices->indices.insert(bridge_indices->indices.end(), part_indices[i]->indices.begin(), part_indices[i]->indices.end());
@@ -1244,6 +1242,27 @@ int main(int argc, char** argv) {
                 /*for (auto& b : classification_boxes) {
                     detail_viewer->add_bounding_box(b, b.r, b.g, b.b);
                 }*/
+
+
+                //resampling
+                /*pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_on_conhull = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+                pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr resampled_cloud = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+                std::vector<pcl::Vertices> concave_indices;
+                pcl::ConcaveHull<pcl::PointXYZRGBNormal> concave_bridge_hull;
+                concave_bridge_hull.setInputCloud(bridge_cloud);
+                concave_bridge_hull.setAlpha(1.0);
+                concave_bridge_hull.setDimension(3);
+                concave_bridge_hull.reconstruct(*cloud_on_conhull, concave_indices);
+                
+                pcl::CropHull<pcl::PointXYZRGBNormal> crop_filter;
+                crop_filter.setInputCloud(input_cloud);
+                crop_filter.setHullCloud(cloud_on_conhull);
+                crop_filter.setHullIndices(concave_indices);
+                crop_filter.setDim(3);
+                crop_filter.filter(*resampled_cloud);
+
+                detail_viewer->visualize_pointcloud(resampled_cloud,"resampled_cloud");*/
+
 
                 //================ END ===============
                 std::cout << "\nMAIN:: ========= END =========";
