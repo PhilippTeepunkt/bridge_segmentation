@@ -3,7 +3,7 @@ Implementation of an unsupervised Point Cloud Segmentation Pipeline for Beam-Sla
 This implementation follows the proposal in the thesis: 
 **Unsupervised Object Extraction for Semantic Segmentation of Bridge Scenes**
 
-## Installation:
+## Installation: ##
 **Requirements:**
 * Cmake
 * C++ Compiler
@@ -33,6 +33,9 @@ Example Config File (.txt):
 300 _//neighborhood statOutlierFilter_    
 0.7 _//stdv. distance to center for statOutlierFilter_  
 
+### Overview window
 ![Overview Window](https://github.com/PhilippTeepunkt/bridge_segmentation/blob/2ca34325b6184ef796757b9f58140c6dd515fd94/overview_pclviewer.png)  
+### Detail window
+![Detail Window](https://github.com/PhilippTeepunkt/bridge_segmentation/blob/c97ac31fce3bb9694f45de9944d5b785075ae284/classified_bridge.png)  
 
 
