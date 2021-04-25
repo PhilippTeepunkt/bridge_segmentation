@@ -33,4 +33,6 @@ Example Config File (.txt):
 300 _//neighborhood statOutlierFilter_    
 0.7 _//stdv. distance to center for statOutlierFilter_  
 
+![Overview Window](https://github.com/PhilippTeepunkt/bridge_segmentation/blob/2ca34325b6184ef796757b9f58140c6dd515fd94/overview_pclviewer.png)  
+
 
