@@ -16,9 +16,11 @@ Clone repository
 
 create build directory  
 `mkdir build; cd build`  
+`cmake ..`
 
 build files  
-`cmake ..`  
+ `make`  
+Windows: `cmake --build . [--config <config>]`
 
 **Run**  
 `./startPipeline [-e Evaluation option] <pcdfile> / <ASCII .txt> / <Mesh .obj> [CAMERA SETTINGS] [CONFIG FILE]"`  
