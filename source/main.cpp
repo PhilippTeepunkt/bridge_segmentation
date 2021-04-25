@@ -108,7 +108,7 @@ double start_timestamp = 0;
 double complete_start_timestamp = 0;
 std::vector<double> time_measurements;
 
-/*
+
 //subsamples input to 2mio points
 pcl::PointIndices subsample_pointcloud(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_cloud, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr out_cloud, pcl::PointIndices::Ptr removed_indices = nullptr) {
 
@@ -125,8 +125,9 @@ pcl::PointIndices subsample_pointcloud(pcl::PointCloud<pcl::PointXYZRGBNormal>::
 
     return indices;
 }
-*/
+
 //subsamples input by distance
+/*
 pcl::PointIndices subsample_pointcloud(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr const in_cloud, pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr out_cloud) {
 
     //pcl::RandomSample<pcl::PointXYZRGBNormal> sampling(true);
@@ -150,6 +151,7 @@ pcl::PointIndices subsample_pointcloud(pcl::PointCloud<pcl::PointXYZRGBNormal>::
     std::printf("MAIN:: Subsampled pointcloud to %d points.\n", indices->indices.size());
     return *indices;
 }
+*/
 
 //aligns pointcloud by its oriented bounding box
 std::pair<Eigen::Matrix4f, Eigen::Affine3f> align_pointcloud(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr in_cloud) {
@@ -675,6 +677,11 @@ int main(int argc, char** argv) {
         arg++;
     }
 
+    if (file_name == "-h") {
+        std::cout << "Usage: startPipeline [-e Evaluation option] <pcdfile> / <ASCII .txt> / <Mesh .obj> [CAMERA SETTINGS] [CONFIG FILE]";
+        return 0;
+    }
+
     file_name = argv[arg];
     bridge_name = file_name.substr(file_name.find_last_of("/\\")+1);
     std::string::size_type const p(bridge_name.find_first_of("_"));
@@ -736,7 +743,7 @@ int main(int argc, char** argv) {
             }
         }
         else {
-            std::cout << "LUUUUUUUUUUUUUUUUUUUUUUUUUUL" << std::endl;
+            std::cout << "Failed open file." << std::endl;
         }
     }  */
 
@@ -859,12 +866,12 @@ int main(int argc, char** argv) {
                 start_timestamp = omp_get_wtime();
                 if (subsampled_cloud == nullptr) {
                     subsampled_cloud = pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-                    //subsampled_indices = pcl::PointIndices::Ptr(new pcl::PointIndices);
-                    //*subsampled_indices = subsample_pointcloud(input_cloud, subsampled_cloud);
-                    //pcl::copyPointCloud(*input_cloud, *subsampled_indices ,*subsampled_cloud);
-                    pcl::copyPointCloud(*input_cloud, *subsampled_cloud);
-                    pcl::copyPointCloud(*input_cloud, *subsampled_normals);
-                    //pcl::copyPointCloud(*subsampled_cloud, *subsampled_normals);
+                    subsampled_indices = pcl::PointIndices::Ptr(new pcl::PointIndices);
+                    *subsampled_indices = subsample_pointcloud(input_cloud, subsampled_cloud);
+                    pcl::copyPointCloud(*input_cloud, *subsampled_indices ,*subsampled_cloud);
+                    //pcl::copyPointCloud(*input_cloud, *subsampled_cloud);
+                    //pcl::copyPointCloud(*input_cloud, *subsampled_normals);
+                    pcl::copyPointCloud(*subsampled_cloud, *subsampled_normals);
                 }
                 std::cout << "MAIN:: subsampled_cloud-> " << subsampled_cloud->size() << " size." << std::endl;
                 timestamp = omp_get_wtime() - start_timestamp;
@@ -1003,7 +1010,7 @@ int main(int argc, char** argv) {
                 neighbourhood_cloud = nullptr;
 
                 viewer->visualize_pointcloud(clipped_cloud, "clipped_cloud_splitted", 3);
-                viewer->assign_bounding_box("clipped_cloud_splitted", 1.0f, 1.0f, 0.0f);
+                viewer->assign_bounding_box("clipped_cloud_splitted", 1.0f, 0.0f, 0.0f);
                 viewer->visualize_pointcloud(cloud_rgbnormalized, "cloud_rgbnormalized", 4);
                 viewer->add_bounding_box(neighbourhood_box, 0.0, 0.0, 1.0, viewer->get_viewport(4));
 

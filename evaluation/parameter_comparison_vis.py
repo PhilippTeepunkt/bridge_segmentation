@@ -19,7 +19,7 @@ if __name__ == "__main__":
 	ax.bar(labels, f_measures_avg, width, label='default parameter')
 	ax.bar(labels, f_distance, width, bottom= f_measures_avg, label ="distance to optimal")
 	ax.set_ylabel('F-Score')
-	ax.set_title('Comparison default and optimal parameter')
+	ax.set_title('Comparison of default and optimal parameter')
 	ax.legend()
 
 	plt.savefig('C:\\Users\\phili\\Desktop\\parameter_default_optimal.png', dpi=1200)
