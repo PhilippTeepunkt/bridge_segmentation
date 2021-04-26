@@ -46,7 +46,7 @@ bool Viewer::visualize_pointcloud(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr i
     int vp = get_viewport(viewport);
     auto cl = pcl_viewport_mapping_.find(cloud_name);
     if (cl != pcl_viewport_mapping_.end()) {
-        std::cout << "VIEWER:: Point cloud with name " << cloud_name << "already visualized on viewport: " << std::distance(viewports_.begin(), std::find(viewports_.begin(), viewports_.end(),cl->second)) << std::endl;
+        std::cout << "VIEWER:: Point cloud with name " << cloud_name << " already visualized on viewport: " << std::distance(viewports_.begin(), std::find(viewports_.begin(), viewports_.end(),cl->second)) << std::endl;
         return false;
     }
 

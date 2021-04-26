@@ -544,41 +544,59 @@ void keyboardEventOccurred(const pcl::visualization::KeyboardEvent& event, void*
     }
 
     //show viewport in detail view
-    if (event.getKeySym() == "F1") {
-        detail_viewer->remove_pointcloud(detail_viewer->get_current_pointcloud(0).first);
-        detail_viewer->visualize_pointcloud(viewer->get_current_pointcloud(0).second, viewer->get_current_pointcloud(0).first, 0);
+    if (event.getKeySym() == "F1" && event.keyDown()) {
+        if (viewer->get_current_pointcloud(0).first != "empty") {
+            detail_viewer->remove_pointcloud(detail_viewer->get_current_pointcloud(0).first);
+            detail_viewer->visualize_pointcloud(viewer->get_current_pointcloud(0).second, viewer->get_current_pointcloud(0).first, 0);
+        }
     }
-    else if (event.getKeySym() == "F2") {
-        detail_viewer->remove_pointcloud(detail_viewer->get_current_pointcloud(0).first);
-        detail_viewer->visualize_pointcloud(viewer->get_current_pointcloud(1).second, viewer->get_current_pointcloud(1).first, 0);
+    else if (event.getKeySym() == "F2" && event.keyDown()) {
+        if (viewer->get_current_pointcloud(1).first != "empty") {
+            detail_viewer->remove_pointcloud(detail_viewer->get_current_pointcloud(0).first);
+            detail_viewer->visualize_pointcloud(viewer->get_current_pointcloud(1).second, viewer->get_current_pointcloud(1).first, 0);
+        }
     }
-    else if (event.getKeySym() == "F3") {
-        detail_viewer->remove_pointcloud(detail_viewer->get_current_pointcloud(0).first);
-        detail_viewer->visualize_pointcloud(viewer->get_current_pointcloud(2).second, viewer->get_current_pointcloud(2).first, 0);
+    else if (event.getKeySym() == "F3" && event.keyDown()) {
+        if (viewer->get_current_pointcloud(2).first != "empty") {
+            detail_viewer->remove_pointcloud(detail_viewer->get_current_pointcloud(0).first);
+            detail_viewer->visualize_pointcloud(viewer->get_current_pointcloud(2).second, viewer->get_current_pointcloud(2).first, 0);
+        }
     }
-    else if (event.getKeySym() == "F4") {
-        detail_viewer->remove_pointcloud(detail_viewer->get_current_pointcloud(0).first);
-        detail_viewer->visualize_pointcloud(viewer->get_current_pointcloud(3).second, viewer->get_current_pointcloud(3).first, 0);
+    else if (event.getKeySym() == "F4" && event.keyDown()) {
+        if (viewer->get_current_pointcloud(3).first != "empty") {
+            detail_viewer->remove_pointcloud(detail_viewer->get_current_pointcloud(0).first);
+            detail_viewer->visualize_pointcloud(viewer->get_current_pointcloud(3).second, viewer->get_current_pointcloud(3).first, 0);
+        }
     }
-    else if (event.getKeySym() == "F5") {
-        detail_viewer->remove_pointcloud(detail_viewer->get_current_pointcloud(0).first);
-        detail_viewer->visualize_pointcloud(viewer->get_current_pointcloud(4).second, viewer->get_current_pointcloud(4).first, 0);
+    else if (event.getKeySym() == "F5" && event.keyDown()) {
+        if (viewer->get_current_pointcloud(4).first != "empty") {
+            detail_viewer->remove_pointcloud(detail_viewer->get_current_pointcloud(0).first);
+            detail_viewer->visualize_pointcloud(viewer->get_current_pointcloud(4).second, viewer->get_current_pointcloud(4).first, 0);
+        }
     }
-    else if (event.getKeySym() == "F6") {
-        detail_viewer->remove_pointcloud(detail_viewer->get_current_pointcloud(0).first);
-        detail_viewer->visualize_pointcloud(viewer->get_current_pointcloud(5).second, viewer->get_current_pointcloud(5).first, 0);
+    else if (event.getKeySym() == "F6" && event.keyDown()) {
+        if (viewer->get_current_pointcloud(5).first != "empty") {
+            detail_viewer->remove_pointcloud(detail_viewer->get_current_pointcloud(0).first);
+            detail_viewer->visualize_pointcloud(viewer->get_current_pointcloud(5).second, viewer->get_current_pointcloud(5).first, 0);
+        }
     }
-    else if (event.getKeySym() == "F7") {
-        detail_viewer->remove_pointcloud(detail_viewer->get_current_pointcloud(0).first);
-        detail_viewer->visualize_pointcloud(viewer->get_current_pointcloud(6).second, viewer->get_current_pointcloud(6).first, 0);
+    else if (event.getKeySym() == "F7" && event.keyDown()) {
+        if (viewer->get_current_pointcloud(6).first != "empty") {
+            detail_viewer->remove_pointcloud(detail_viewer->get_current_pointcloud(0).first);
+            detail_viewer->visualize_pointcloud(viewer->get_current_pointcloud(6).second, viewer->get_current_pointcloud(6).first, 0);
+        }
     }
-    else if (event.getKeySym() == "F8") {
-        detail_viewer->remove_pointcloud(detail_viewer->get_current_pointcloud(0).first);
-        detail_viewer->visualize_pointcloud(viewer->get_current_pointcloud(7).second, viewer->get_current_pointcloud(7).first, 0);
+    else if (event.getKeySym() == "F8" && event.keyDown()) {
+        if (viewer->get_current_pointcloud(7).first != "empty"){
+            detail_viewer->remove_pointcloud(detail_viewer->get_current_pointcloud(0).first);
+            detail_viewer->visualize_pointcloud(viewer->get_current_pointcloud(7).second, viewer->get_current_pointcloud(7).first, 0);
+        }
     }
-    else if (event.getKeySym() == "F9") {
-        detail_viewer->removePointCloud(detail_viewer->get_current_pointcloud(0).first);
-        detail_viewer->visualize_pointcloud(viewer->get_current_pointcloud(8).second, viewer->get_current_pointcloud(8).first, 0);
+    else if (event.getKeySym() == "F9" && event.keyDown()) {
+        if (viewer->get_current_pointcloud(8).first != "empty") {
+            detail_viewer->remove_pointcloud(detail_viewer->get_current_pointcloud(0).first);
+            detail_viewer->visualize_pointcloud(viewer->get_current_pointcloud(8).second, viewer->get_current_pointcloud(8).first, 0);
+        }
     }
 }
 
@@ -830,7 +848,6 @@ int main(int argc, char** argv) {
     detail_viewer->visualize_pointcloud(temp_cloud, "temp");
     */
     complete_start_timestamp = omp_get_wtime();
-    const int rest_num_threads = omp_get_num_threads()-1;
     omp_set_nested(true);
     omp_set_dynamic(1);
 
@@ -839,7 +856,7 @@ int main(int argc, char** argv) {
         //use separate visualizer thread
         #pragma omp master
         {
-            std::printf("\nMAIN:: Start visualizer on thread %d of %d \n", omp_get_thread_num(), omp_get_num_threads());
+            std::printf("\nMAIN:: Start visualizer on thread %d of %d \n", omp_get_thread_num(), omp_get_max_threads());
             //visualizer loop
             while (!viewer->wasStopped() && !close_flag) {
                 viewer->spinOnce(100);
@@ -858,7 +875,7 @@ int main(int argc, char** argv) {
                 start_timestamp = complete_start_timestamp;
 
                 //=============== GENERAL =================
-                std::printf("\nMAIN:: Start Pipeline on thread %d of %d \n", omp_get_thread_num(), omp_get_num_threads());
+                std::printf("\nMAIN:: Start Pipeline on thread %d of %d \n", omp_get_thread_num()+1, omp_get_num_threads());
 
 
                 //=============== SUBSAMPLING ================
@@ -895,7 +912,7 @@ int main(int argc, char** argv) {
                 time_measurements.push_back(timestamp);
 
                 viewer->visualize_pointcloud(subsampled_cloud, "subsampled_cloud");
-                //detail_viewer->visualize_pointcloud(aligned_cloud, "aligned_cloud");
+                //detail_viewer->visualize_pointcloud(subsampled_cloud,"subsampled_cloud");
                 viewer->assign_oriented_bounding_box("subsampled_cloud", 1.0, 0.0, 0.0);
 
                 std::cout << "\nMAIN:: ========= NORMAL ESTIMATION =========" << std::endl;
@@ -908,8 +925,6 @@ int main(int argc, char** argv) {
                 timestamp = omp_get_wtime() - start_timestamp;
                 printf("MAIN:: Normal estimation took %f seconds\n", timestamp);
                 time_measurements.push_back(timestamp);
-
-                //viewer->remove_pointcloud("subsampled_cloud");
 
                 std::cout << "\nMAIN:: ========= SLAB EXTRACTION =========" << std::endl;
                 //================ SLAB EXTRACTION ==============
