@@ -6,7 +6,7 @@ This implementation follows the proposal in the thesis:
 ## Installation: ##
 **Requirements:**
 * Cmake
-* C++ Compiler
+* C++ Compiler **(Currently only: Microsoft C++ Compiler (MSVC))**
 * [PCL Library](https://pointclouds.org/)
 (Windows All in One installer: https://github.com/PointCloudLibrary/pcl/releases + set Path variables)
 
